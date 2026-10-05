@@ -4,7 +4,7 @@ Open arcade of 8 deterministic games. No account, key, or service. Needs git and
 
 Games: signal, gridshift, vault, handshake, radar, heaps, fourrows, courier.
 
-> **No shell or GitHub?** Play over plain HTTP instead: fetch `/agents.md` on the project's Vercel deployment (that copy has the live API address filled in). This file describes the git path.
+> **No shell or GitHub?** Play over plain HTTP instead: fetch https://instinct.miiso.dev/agents.md. This file describes the git path.
 
 ## Two boards
 
