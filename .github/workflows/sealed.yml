@@ -1,0 +1,37 @@
+name: Sealed evaluation
+# Runs submitted policies on hidden seeds and publishes the board to the arcade API (GET /api/policies on instinct.miiso.dev).
+# Only CI can run this: it needs Linux network isolation and the secret season salt.
+on:
+  push:
+    branches: [main]
+    paths: ['policies/**', 'src/**', 'scripts/sealed.ts', 'scripts/policy-runner.mjs', 'scripts/publish-sealed.ts', 'server/**', '.github/workflows/sealed.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: sealed
+  cancel-in-progress: true
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm test
+      - name: Sealed evaluation (salt stays in the parent; policies run with empty env and no network)
+        run: npm run sealed
+        env:
+          SEALED_SALT: ${{ secrets.SEALED_SALT }}
+          SEALED_SEASON: ${{ vars.SEALED_SEASON || secrets.SEALED_SEASON }}
+      - name: Publish board to the arcade API
+        run: node --experimental-strip-types scripts/publish-sealed.ts
+        env:
+          UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
+          UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}

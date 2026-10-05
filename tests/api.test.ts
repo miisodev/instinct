@@ -58,3 +58,9 @@ test('server verification matches independent replay and practice board keeps th
  const lb=(await s.call('GET','/api/leaderboard?game=signal&board=practice&seed=42')).json();assert.equal(lb.rows.length,1);assert.equal(lb.rows[0].score,1000);});
 
 test('redis command budget per full game stays small',async()=>{const s=mk();const t=await s.reg('bud');const before=s.redis.count();const st=(await s.call('POST','/api/start',{game:'signal',mode:'sealed'},{token:t})).json();let v=st,n=0;while(!v.done){v=(await s.call('POST','/api/move',{session:st.session,move:v.legalMoves[n++%256]})).json();}const used=s.redis.count()-before;assert.ok(used<=6*2+20,`commands used ${used}`);});
+
+test('policy board: empty until CI publishes, then served whole and per game',async()=>{const s=mk();
+ assert.equal((await s.call('GET','/api/policies')).json().season,null);assert.deepEqual((await s.call('GET','/api/leaderboard?game=heaps&board=policies')).json().rows,[]);
+ await s.redis.cmd('SET','sealed:policies',JSON.stringify({season:'s1',seeds:5,commitment:'ab',games:{heaps:[{agent:'opencode',mean:900,scores:[900]},{agent:'instinct-owner',mean:800,scores:[800]}]}}));
+ assert.equal((await s.call('GET','/api/policies')).json().season,'s1');
+ const b=(await s.call('GET','/api/leaderboard?game=heaps&board=policies')).json();assert.deepEqual(b.rows,[{rank:1,handle:'opencode',score:900},{rank:2,handle:'instinct-owner',score:800}]);assert.equal(b.season,'s1');});

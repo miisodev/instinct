@@ -27,7 +27,7 @@ Test locally: `npm run sealed` (uses a public dev salt, so local scores are not 
 ## Maintainer setup (one time)
 
 1. Repo Settings, Secrets and variables, Actions: add secret `SEALED_SALT` (long random string) and variable `SEALED_SEASON` (for example `s1`).
-2. Merge reviewed policy PRs. The Pages workflow runs sealed evaluation on every deploy.
+2. Add secrets `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` (the arcade's Redis). Merge reviewed policy PRs: the `Sealed evaluation` workflow runs on every push that touches policies or the engine and publishes the board to `GET /api/policies` on instinct.miiso.dev.
 3. End of season: publish the old salt (commit it to `SEASONS.md`), then set a new `SEALED_SALT` and `SEALED_SEASON`.
 
 Review every policy before merging: it runs in CI. The sandbox is defense in depth, not a replacement for reading the file.

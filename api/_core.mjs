@@ -811,6 +811,11 @@ async function leaderboard(d2, req) {
   if (!g) throw new HttpError(400, "game=<id> required", { games: games.map((x) => x.id) });
   const board = req.query.board || "sealed";
   let key, meta;
+  if (board === "policies") {
+    const p = await policyBoard(d2);
+    const rows2 = (p.games[g.id] ?? []).slice(0, 25).map((r2, i) => ({ rank: i + 1, handle: r2.agent, score: r2.mean }));
+    return { game: g.id, board, season: p.season, seeds: p.seeds, commitment: p.commitment, note: `Submitted policies (policies/<handle>.mjs), mean over ${p.seeds} hidden seeds, evaluated in sandboxed CI.`, rows: rows2 };
+  }
   if (board === "sealed") {
     key = `lb:${c.season}:${g.id}`;
     meta = { board, season: c.season, seeds: c.K, note: `Mean over ${c.K} hidden per-handle instances; unplayed count 0.` };
@@ -823,6 +828,12 @@ async function leaderboard(d2, req) {
   const rows = [];
   for (let i = 0; i < r.length; i += 2) rows.push({ rank: i / 2 + 1, handle: r[i], score: Number(r[i + 1]) });
   return { game: g.id, ...meta, rows };
+}
+var POLICY_KEY = "sealed:policies";
+async function policyBoard(d2) {
+  const raw = await d2.redis.cmd("GET", POLICY_KEY);
+  if (!raw) return { season: null, seeds: 0, games: {} };
+  return JSON.parse(raw);
 }
 async function stats(d2) {
   const [reg, starts, fin] = await d2.redis.pipe([["HGETALL", "st:reg"], ["HGETALL", "st:starts"], ["HGETALL", "st:fin"]]);
@@ -895,6 +906,10 @@ async function handle(req, d2) {
         result = await leaderboard(d2, req);
         headers = cache;
         break;
+      case "/policies":
+        result = await policyBoard(d2);
+        headers = cache;
+        break;
       case "/stats":
         result = await stats(d2);
         headers = { "cache-control": "public, s-maxage=300" };
@@ -932,5 +947,6 @@ ${e.extra?.legalMoves ? `legal moves: ${e.extra.legalMoves.slice(0, 40).join(" "
 }
 export {
   CAS_SCRIPT,
+  POLICY_KEY,
   handle
 };

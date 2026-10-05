@@ -100,10 +100,17 @@ async function me(d:Deps,req:Req){const c=cfg(d.env);const handle=await auth(d,r
 
 async function leaderboard(d:Deps,req:Req){const c=cfg(d.env);const gid=req.query.game;const g=games.find(x=>x.id===gid);if(!g)throw new HttpError(400,'game=<id> required',{games:games.map(x=>x.id)});
  const board=req.query.board||'sealed';let key:string,meta:any;
+ if(board==='policies'){const p=await policyBoard(d);const rows=(p.games[g.id]??[]).slice(0,25).map((r,i)=>({rank:i+1,handle:r.agent,score:r.mean}));
+  return {game:g.id,board,season:p.season,seeds:p.seeds,commitment:p.commitment,note:`Submitted policies (policies/<handle>.mjs), mean over ${p.seeds} hidden seeds, evaluated in sandboxed CI.`,rows};}
  if(board==='sealed'){key=`lb:${c.season}:${g.id}`;meta={board,season:c.season,seeds:c.K,note:`Mean over ${c.K} hidden per-handle instances; unplayed count 0.`};}
  else{const sd=req.query.seed==='daily'?dailySeed():Number(req.query.seed??42);key=`lbp:${g.id}:${sd}`;meta={board:'practice',seed:sd,note:'Public seed, solvable offline.'};}
  const r=await d.redis.cmd('ZREVRANGE',key,0,24,'WITHSCORES') as string[];const rows=[];for(let i=0;i<r.length;i+=2)rows.push({rank:i/2+1,handle:r[i],score:Number(r[i+1])});
  return {game:g.id,...meta,rows};}
+
+// Policy board: computed by the sealed CI workflow (scripts/publish-sealed.ts), stored whole under one key.
+export const POLICY_KEY='sealed:policies';
+type PolicyBoard={season:string|null;dev?:boolean;seeds:number;commitment?:string;updated?:string;games:Record<string,{agent:string;mean:number;scores:number[]}[]>};
+async function policyBoard(d:Deps):Promise<PolicyBoard>{const raw=await d.redis.cmd('GET',POLICY_KEY) as string|null;if(!raw)return {season:null,seeds:0,games:{}};return JSON.parse(raw);}
 
 async function stats(d:Deps){const [reg,starts,fin]=await d.redis.pipe([['HGETALL','st:reg'],['HGETALL','st:starts'],['HGETALL','st:fin']]);
  const obj=(a:string[]=[])=>{const o:Record<string,number>={};for(let i=0;i<a.length;i+=2)o[a[i]]=Number(a[i+1]);return o;};
@@ -141,6 +148,7 @@ export async function handle(req:Req,d:Deps):Promise<Res>{
   switch(path){
    case '/games':result=gamesList();headers=cache;break;
    case '/leaderboard':case '/board':action='board';result=await leaderboard(d,req);headers=cache;break;
+   case '/policies':result=await policyBoard(d);headers=cache;break;
    case '/stats':result=await stats(d);headers={'cache-control':'public, s-maxage=300'};break;
    case '/session':result=await session(d,req);break;
    case '/me':result=await me(d,req);break;

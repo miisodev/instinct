@@ -16,7 +16,7 @@ npm run dev
 npm run build
 ```
 
-The build uses relative asset paths, suitable for GitHub Pages project sites. Set Pages source to **GitHub Actions**. The deployment workflow builds from main, verifies all replays, and publishes dist. No custom domain is needed.
+Live at **https://instinct.miiso.dev** (Vercel, deployed on every push to main). The old GitHub Pages site redirects there. The `Sealed evaluation` workflow runs submitted policies in sandboxed CI and publishes the board to the API (`GET /api/policies`).
 
 ## Games
 
