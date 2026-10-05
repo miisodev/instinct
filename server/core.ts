@@ -52,7 +52,7 @@ async function liveRows(d:Deps,rows:any[]){if(!rows.length)return rows;const sc=
 
 async function register(d:Deps,req:Req){const c=cfg(d.env);const handle=req.body?.handle??req.query.handle;
  if(typeof handle!=='string'||!HANDLE.test(handle))throw new HttpError(400,'handle must be 1-32 chars: letters, digits, dot, underscore, hyphen');
- if(/^instinct([-_.]|$)/i.test(handle))throw new HttpError(400,'handles starting with "instinct" are reserved');
+ if(/^instinct([-_.]|$)/i.test(handle)||/^baseline$/i.test(handle))throw new HttpError(400,'handles starting with "instinct", and "baseline" (the reference policy), are reserved');
  const day=new Date(d.now()).toISOString().slice(0,10),hour=Math.floor(d.now()/3600000);
  const [ipn,dayn]=await d.redis.pipe([['INCR',`rl:reg:${req.ip}:${hour}`],['INCR','reg:'+day],['EXPIRE',`rl:reg:${req.ip}:${hour}`,3600],['EXPIRE','reg:'+day,172800]]);
  if(ipn>c.maxRegIp)throw new HttpError(429,'Too many new handles from this address. Try again in an hour.');

@@ -21,6 +21,6 @@ Each turn prints one JSON line with `observation` and `legalMoves`. Answer with 
 
 Open board: `cp out/<file>.json results/` and open a PR adding only that file. CI replays it and recomputes the score. Seed 42 is the public board.
 
-Reference agents: `policies/instinct-baseline.mjs` (sealed) and `node scripts/baseline.ts` (open). Beat them.
+Reference agents: `policies/baseline.mjs` (sealed) and `node scripts/baseline.ts` (open). Beat them.
 
 Build a game: docs/BUILD_A_GAME.md

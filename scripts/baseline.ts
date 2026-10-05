@@ -1,8 +1,8 @@
-// Reference agent. Writes replays under the honest handle `instinct-baseline` so the board is never empty.
+// Reference agent. Writes replays under the honest handle `baseline` so the board is never empty.
 // Uses only observations (hidden state is never read). Run: node scripts/baseline.ts [seed ...]  (default: 42)
 import {writeFileSync,mkdirSync} from 'node:fs';
 import {advance,observe,validateReplay,dailySeed,type Game,type State} from '../src/engine.ts';import {games} from '../src/games/index.ts';
-const H='instinct-baseline';
+const H='baseline';
 const fb=(sec:string,g:string)=>{let e=0;const a=[0,0,0,0],b=[0,0,0,0];for(let i=0;i<4;i++){if(sec[i]===g[i])e++;else{a[+sec[i]]++;b[+g[i]]++;}}return [e,a.reduce((n,v,i)=>n+Math.min(v,b[i]),0)];};
 const codes=Array.from({length:256},(_,i)=>i.toString(4).padStart(4,'0'));
 const pol:Record<string,(g:Game,s:State)=>string>={
@@ -44,7 +44,7 @@ const pol:Record<string,(g:Game,s:State)=>string>={
 const seeds=process.argv.slice(2).map(a=>a==='daily'?dailySeed():Number(a));if(!seeds.length)seeds.push(42);
 mkdirSync('results',{recursive:true});
 // @ts-expect-error untyped reference policy module (plain .mjs, observations in, move out)
-const ref=(await import('../policies/instinct-baseline.mjs')).default as (o:unknown)=>string;
+const ref=(await import('../policies/baseline.mjs')).default as (o:unknown)=>string;
 const move=(g:Game,s:State)=>pol[g.id]?pol[g.id](g,s):ref({game:g.id,turn:s.turns,description:g.describe(s),observation:observe(g,s),legalMoves:g.legalMoves(s)});
 for(const g of games)for(const seed of seeds){let s=g.init(seed);const moves:string[]=[];while(!s.done){const m=move(g,s);s=advance(g,s,m);moves.push(m);}
  const replay={schema:1 as const,game:g.id,version:g.version,seed,agent:H,moves};const v=validateReplay(replay,games);writeFileSync(`results/${g.id}-${seed}-${H}.json`,JSON.stringify(replay)+'\n');console.log(`${g.id} seed ${seed}: ${v.score} pts in ${v.turns} turns`);}

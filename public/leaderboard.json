@@ -3,216 +3,216 @@
     "game": "courier",
     "version": 1,
     "seed": 42,
-    "agent": "instinct-baseline",
+    "agent": "baseline",
     "score": 2106,
     "turns": 24,
-    "file": "courier-42-instinct-baseline.json"
+    "file": "courier-42-baseline.json"
   },
   {
     "game": "courier",
     "version": 1,
     "seed": 7,
-    "agent": "instinct-baseline",
+    "agent": "baseline",
     "score": 2038,
     "turns": 24,
-    "file": "courier-7-instinct-baseline.json"
+    "file": "courier-7-baseline.json"
   },
   {
     "game": "vault",
     "version": 1,
     "seed": 42,
-    "agent": "instinct-baseline",
+    "agent": "baseline",
     "score": 1760,
     "turns": 18,
-    "file": "vault-42-instinct-baseline.json"
+    "file": "vault-42-baseline.json"
   },
   {
     "game": "vault",
     "version": 1,
     "seed": 7,
-    "agent": "instinct-baseline",
+    "agent": "baseline",
     "score": 1760,
     "turns": 18,
-    "file": "vault-7-instinct-baseline.json"
+    "file": "vault-7-baseline.json"
   },
   {
     "game": "gridshift",
     "version": 1,
     "seed": 42,
-    "agent": "instinct-baseline",
+    "agent": "baseline",
     "score": 1700,
     "turns": 20,
-    "file": "gridshift-42-instinct-baseline.json"
+    "file": "gridshift-42-baseline.json"
   },
   {
     "game": "gridshift",
     "version": 1,
     "seed": 7,
-    "agent": "instinct-baseline",
+    "agent": "baseline",
     "score": 1670,
     "turns": 22,
-    "file": "gridshift-7-instinct-baseline.json"
+    "file": "gridshift-7-baseline.json"
   },
   {
     "game": "lights",
     "version": 1,
     "seed": 7,
-    "agent": "instinct-baseline",
+    "agent": "baseline",
     "score": 1280,
     "turns": 8,
-    "file": "lights-7-instinct-baseline.json"
+    "file": "lights-7-baseline.json"
   },
   {
     "game": "lights",
     "version": 1,
     "seed": 42,
-    "agent": "instinct-baseline",
+    "agent": "baseline",
     "score": 1200,
     "turns": 10,
-    "file": "lights-42-instinct-baseline.json"
+    "file": "lights-42-baseline.json"
   },
   {
     "game": "nextterm",
     "version": 1,
     "seed": 42,
-    "agent": "instinct-baseline",
+    "agent": "baseline",
     "score": 1000,
     "turns": 10,
-    "file": "nextterm-42-instinct-baseline.json"
+    "file": "nextterm-42-baseline.json"
   },
   {
     "game": "nextterm",
     "version": 1,
     "seed": 7,
-    "agent": "instinct-baseline",
+    "agent": "baseline",
     "score": 1000,
     "turns": 10,
-    "file": "nextterm-7-instinct-baseline.json"
+    "file": "nextterm-7-baseline.json"
   },
   {
     "game": "heaps",
     "version": 1,
     "seed": 42,
-    "agent": "instinct-baseline",
+    "agent": "baseline",
     "score": 920,
     "turns": 4,
-    "file": "heaps-42-instinct-baseline.json"
+    "file": "heaps-42-baseline.json"
   },
   {
     "game": "handshake",
     "version": 2,
     "seed": 42,
-    "agent": "instinct-baseline",
+    "agent": "baseline",
     "score": 906,
     "turns": 20,
-    "file": "handshake-42-instinct-baseline.json"
+    "file": "handshake-42-baseline.json"
   },
   {
     "game": "fourrows",
     "version": 2,
     "seed": 42,
-    "agent": "instinct-baseline",
+    "agent": "baseline",
     "score": 865,
     "turns": 9,
-    "file": "fourrows-42-instinct-baseline.json"
+    "file": "fourrows-42-baseline.json"
   },
   {
     "game": "heaps",
     "version": 1,
     "seed": 7,
-    "agent": "instinct-baseline",
+    "agent": "baseline",
     "score": 860,
     "turns": 7,
-    "file": "heaps-7-instinct-baseline.json"
+    "file": "heaps-7-baseline.json"
   },
   {
     "game": "fourrows",
     "version": 2,
     "seed": 7,
-    "agent": "instinct-baseline",
+    "agent": "baseline",
     "score": 820,
     "turns": 12,
-    "file": "fourrows-7-instinct-baseline.json"
+    "file": "fourrows-7-baseline.json"
   },
   {
     "game": "handshake",
     "version": 2,
     "seed": 7,
-    "agent": "instinct-baseline",
+    "agent": "baseline",
     "score": 641,
     "turns": 20,
-    "file": "handshake-7-instinct-baseline.json"
+    "file": "handshake-7-baseline.json"
   },
   {
     "game": "signal",
     "version": 1,
     "seed": 42,
-    "agent": "instinct-baseline",
+    "agent": "baseline",
     "score": 640,
     "turns": 4,
-    "file": "signal-42-instinct-baseline.json"
+    "file": "signal-42-baseline.json"
   },
   {
     "game": "prospector",
     "version": 1,
     "seed": 7,
-    "agent": "instinct-baseline",
+    "agent": "baseline",
     "score": 609,
     "turns": 40,
-    "file": "prospector-7-instinct-baseline.json"
+    "file": "prospector-7-baseline.json"
   },
   {
     "game": "prospector",
     "version": 1,
     "seed": 42,
-    "agent": "instinct-baseline",
+    "agent": "baseline",
     "score": 556,
     "turns": 40,
-    "file": "prospector-42-instinct-baseline.json"
+    "file": "prospector-42-baseline.json"
   },
   {
     "game": "signal",
     "version": 1,
     "seed": 7,
-    "agent": "instinct-baseline",
+    "agent": "baseline",
     "score": 520,
     "turns": 5,
-    "file": "signal-7-instinct-baseline.json"
+    "file": "signal-7-baseline.json"
   },
   {
     "game": "radar",
     "version": 1,
     "seed": 42,
-    "agent": "instinct-baseline",
+    "agent": "baseline",
     "score": 330,
     "turns": 40,
-    "file": "radar-42-instinct-baseline.json"
+    "file": "radar-42-baseline.json"
   },
   {
     "game": "radar",
     "version": 1,
     "seed": 7,
-    "agent": "instinct-baseline",
+    "agent": "baseline",
     "score": 300,
     "turns": 40,
-    "file": "radar-7-instinct-baseline.json"
+    "file": "radar-7-baseline.json"
   },
   {
     "game": "minefield",
     "version": 1,
     "seed": 42,
-    "agent": "instinct-baseline",
+    "agent": "baseline",
     "score": 230,
     "turns": 7,
-    "file": "minefield-42-instinct-baseline.json"
+    "file": "minefield-42-baseline.json"
   },
   {
     "game": "minefield",
     "version": 1,
     "seed": 7,
-    "agent": "instinct-baseline",
+    "agent": "baseline",
     "score": 60,
     "turns": 1,
-    "file": "minefield-7-instinct-baseline.json"
+    "file": "minefield-7-baseline.json"
   }
 ]
