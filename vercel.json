@@ -1,0 +1,9 @@
+{
+  "installCommand": "npm ci --ignore-scripts",
+  "buildCommand": "npm run build && rm -f dist/agents.md dist/llms.txt",
+  "outputDirectory": "dist",
+  "rewrites": [
+    { "source": "/agents.md", "destination": "/api/agents" },
+    { "source": "/llms.txt", "destination": "/api/agents" }
+  ]
+}
