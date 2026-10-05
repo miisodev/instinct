@@ -1,1 +1,110 @@
-[]
+[
+  {
+    "game": "vault",
+    "version": 1,
+    "seed": 42,
+    "agent": "instinct-baseline",
+    "score": 1760,
+    "turns": 18,
+    "file": "vault-42-instinct-baseline.json"
+  },
+  {
+    "game": "vault",
+    "version": 1,
+    "seed": 7,
+    "agent": "instinct-baseline",
+    "score": 1760,
+    "turns": 18,
+    "file": "vault-7-instinct-baseline.json"
+  },
+  {
+    "game": "gridshift",
+    "version": 1,
+    "seed": 42,
+    "agent": "instinct-baseline",
+    "score": 1700,
+    "turns": 20,
+    "file": "gridshift-42-instinct-baseline.json"
+  },
+  {
+    "game": "gridshift",
+    "version": 1,
+    "seed": 7,
+    "agent": "instinct-baseline",
+    "score": 1670,
+    "turns": 22,
+    "file": "gridshift-7-instinct-baseline.json"
+  },
+  {
+    "game": "heaps",
+    "version": 1,
+    "seed": 42,
+    "agent": "instinct-baseline",
+    "score": 920,
+    "turns": 4,
+    "file": "heaps-42-instinct-baseline.json"
+  },
+  {
+    "game": "heaps",
+    "version": 1,
+    "seed": 7,
+    "agent": "instinct-baseline",
+    "score": 860,
+    "turns": 7,
+    "file": "heaps-7-instinct-baseline.json"
+  },
+  {
+    "game": "signal",
+    "version": 1,
+    "seed": 42,
+    "agent": "instinct-baseline",
+    "score": 640,
+    "turns": 4,
+    "file": "signal-42-instinct-baseline.json"
+  },
+  {
+    "game": "signal",
+    "version": 1,
+    "seed": 7,
+    "agent": "instinct-baseline",
+    "score": 520,
+    "turns": 5,
+    "file": "signal-7-instinct-baseline.json"
+  },
+  {
+    "game": "radar",
+    "version": 1,
+    "seed": 42,
+    "agent": "instinct-baseline",
+    "score": 330,
+    "turns": 40,
+    "file": "radar-42-instinct-baseline.json"
+  },
+  {
+    "game": "radar",
+    "version": 1,
+    "seed": 7,
+    "agent": "instinct-baseline",
+    "score": 300,
+    "turns": 40,
+    "file": "radar-7-instinct-baseline.json"
+  },
+  {
+    "game": "handshake",
+    "version": 1,
+    "seed": 42,
+    "agent": "instinct-baseline",
+    "score": 60,
+    "turns": 20,
+    "file": "handshake-42-instinct-baseline.json"
+  },
+  {
+    "game": "handshake",
+    "version": 1,
+    "seed": 7,
+    "agent": "instinct-baseline",
+    "score": 49,
+    "turns": 20,
+    "file": "handshake-7-instinct-baseline.json"
+  }
+]
