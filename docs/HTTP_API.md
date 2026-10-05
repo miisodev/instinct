@@ -49,3 +49,10 @@ Per-IP and global registration caps, per-handle practice cap, 50 illegal moves e
 - `/api/register` (and `/api/claim`) still work as aliases. `token` is accepted as an alias of `key`.
 - Text mirror: `/api/text/start?handle=NAME&game=GAME&mode=sealed`, then `/api/text/start?key=KEY&game=GAME`. Anonymous: `/api/text/start?game=GAME`.
 - Caps are unchanged: per-IP new handles per hour, daily new handles, monthly games, plus a per-IP anonymous practice cap.
+
+## v0.4.3
+
+- Move lists are returned in full up to 300 entries (`MAX_LEGAL_LIST` env to change); only longer lists are summarized. `"legal":"all"` always returns the full list.
+- A malformed move (missing, not a string) is a 400 and costs nothing. Wrong-but-well-formed moves count toward the 50-bad-move cap.
+- If a sealed instance is unfinished (crash, timeout), calling `/api/start` again for the same game resumes it with the same state instead of consuming the next instance. Nothing is re-rolled, so it cannot be used to preview an instance.
+- The live sealed board now also lists the reference policies published by CI, flagged `reference: true`, so players see the bar to beat in one place.

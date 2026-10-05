@@ -20,9 +20,10 @@ test('full sealed run of every game via HTTP, scored server-side, recorded on th
  const me=(await s.call('GET','/api/me',{},{token:tok})).json();assert.equal(me.sealed.signal.started,1);});
 
 test('sealed instances: per-handle different, each index once, K cap, practice unaffected',async()=>{const s=mk({SEALED_SEEDS:'2'});const a=await s.reg('aa','2.2.2.2'),b=await s.reg('bb','3.3.3.3');
- const obs=async(t:string)=>{const r=(await s.call('POST','/api/start',{game:'courier',mode:'sealed'},{token:t})).json();return JSON.stringify(r.observation.points);};
+ const fin=async(r:any)=>{let v=r,n=0;while(!v.done&&n++<100)v=(await s.call('POST','/api/move',{session:r.session,move:(v.legalMoves||v.legalMovesSample)[0]})).json();};
+ const obs=async(t:string)=>{const r=(await s.call('POST','/api/start',{game:'courier',mode:'sealed'},{token:t})).json();const o=JSON.stringify(r.observation.points);await fin(r);return o;};
  const pa=await obs(a),pb=await obs(b);assert.notEqual(pa,pb);
- const a2=await s.call('POST','/api/start',{game:'courier',mode:'sealed'},{token:a});assert.equal(a2.json().index,2);
+ const a2=await s.call('POST','/api/start',{game:'courier',mode:'sealed'},{token:a});assert.equal(a2.json().index,2);await fin(a2.json());
  assert.equal((await s.call('POST','/api/start',{game:'courier',mode:'sealed'},{token:a})).status,409);
  assert.equal((await s.call('POST','/api/start',{game:'heaps',mode:'sealed'},{token:a})).status,200);
  const pr=await s.call('POST','/api/start',{game:'courier',mode:'practice',seed:42},{token:a});assert.equal(pr.status,200);});
@@ -65,7 +66,7 @@ test('policy board: empty until CI publishes, then served whole and per game',as
  assert.equal((await s.call('GET','/api/policies')).json().season,'s1');
  const b=(await s.call('GET','/api/leaderboard?game=heaps&board=policies')).json();assert.deepEqual(b.rows,[{rank:1,handle:'opencode',score:900},{rank:2,handle:'instinct-owner',score:800}]);assert.equal(b.season,'s1');});
 
-test('large legal move lists are summarized; legal=all returns them; illegal-move error is small',async()=>{const s=mk();const t=await s.reg('big');const st=(await s.call('POST','/api/start',{game:'signal',mode:'practice',seed:1},{token:t})).json();
+test('legal move lists are full up to the cap, summarized beyond it; legal=all returns them; error body stays small',async()=>{const full=mk();const ft=await full.reg('fl');const fs=(await full.call('POST','/api/start',{game:'signal',mode:'practice',seed:1},{token:ft})).json();assert.equal(fs.legalMoves.length,256);const s=mk({MAX_LEGAL_LIST:'40'});const t=await s.reg('big');const st=(await s.call('POST','/api/start',{game:'signal',mode:'practice',seed:1},{token:t})).json();
  assert.equal(st.legalMoves,null);assert.equal(st.legalMovesCount,256);assert.equal(st.legalMovesSample.length,8);assert.ok(st.moveRule);
  const e=await s.call('POST','/api/move',{session:st.session,move:'zzzz'});assert.equal(e.status,400);assert.ok(e.text.length<1200,'error body small');assert.equal(e.json().legalMovesCount,256);
  const all=(await s.call('POST','/api/move',{session:st.session,move:'zzzz',legal:'all'})).json();assert.equal(all.legalMoves.length,256);
@@ -116,3 +117,16 @@ test('agents.md and text mirror avoid account/register wording; text start with 
  const a=(await s.call('GET','/api/agents')).text;assert.ok(!/register|account|sign.?up (is|required)/i.test(a.replace(/No sign-up, no email\./,'')),'agents.md wording');
  const g=(await s.call('GET','/api/text/games')).text;assert.ok(!/regist|account/i.test(g));
  const t=(await s.call('GET','/api/text/start',{},{query:{handle:'texter',game:'heaps',mode:'sealed'},ip:'4.4.4.4'}));assert.equal(t.status,200);assert.match(t.text,/PLAY KEY/);});
+
+test('unfinished sealed instance is resumed on restart, not burned; malformed move costs nothing',async()=>{const s=mk();const t=await s.reg('crash');
+ const a=(await s.call('POST','/api/start',{game:'radar',mode:'sealed'},{token:t})).json();
+ const m1=await s.call('POST','/api/move',{session:a.session,move:(a.legalMoves||a.legalMovesSample)[0]});assert.equal(m1.status,200);
+ const bad=await s.call('POST','/api/move',{session:a.session});assert.equal(bad.status,400);
+ const b=(await s.call('POST','/api/start',{game:'radar',mode:'sealed'},{token:t})).json();assert.equal(b.session,a.session);assert.equal(b.turn,1);assert.match(b.note,/Resumed/);
+ const me=(await s.call('GET','/api/me',{},{token:t})).json();assert.equal(me.sealed.radar.started,1);
+ const after=await s.call('POST','/api/move',{session:a.session,move:'zzz'});assert.equal(after.json().badMoves,1);});
+
+test('sealed board on the live API includes reference policies, flagged',async()=>{const s=mk();
+ await s.deps.redis.cmd('SET','sealed:policies',JSON.stringify({season:'t1',seeds:5,games:{heaps:[{agent:'instinct-baseline',mean:500,scores:[]}]}}));
+ const t=await s.reg('p1');const st=(await s.call('POST','/api/start',{game:'heaps',mode:'sealed'},{token:t})).json();let v=st,n=0;while(!v.done&&n++<100)v=(await s.call('POST','/api/move',{session:st.session,move:(v.legalMoves||v.legalMovesSample)[0]})).json();
+ const lb=(await s.call('GET','/api/leaderboard',{},{query:{game:'heaps'}})).json();const ref=lb.rows.find((r:any)=>r.handle==='instinct-baseline');assert.ok(ref&&ref.reference===true);assert.ok(lb.rows.some((r:any)=>r.handle==='p1'&&!r.reference));assert.deepEqual(lb.rows.map((r:any)=>r.rank),lb.rows.map((_:any,i:number)=>i+1));});

@@ -10,7 +10,7 @@ export interface Req {method:string;path:string;query:Record<string,string>;body
 export interface Res {status:number;headers:Record<string,string>;body:string}
 export interface Deps {redis:Redis;env:Record<string,string|undefined>;now:()=>number}
 
-const ctx=new AsyncLocalStorage<{all:boolean}>();
+const ctx=new AsyncLocalStorage<{all:boolean;max:number}>();
 const HANDLE=/^[a-zA-Z0-9_.-]{1,32}$/;
 const SCRIPT_CAS="if redis.call('HGET',KEYS[1],'step')==ARGV[1] then redis.call('HSET',KEYS[1],'step',ARGV[2],'json',ARGV[3]) redis.call('EXPIRE',KEYS[1],ARGV[4]) return 1 end return 0";
 export const CAS_SCRIPT=SCRIPT_CAS;
@@ -25,8 +25,8 @@ function cfg(env:Deps['env']){return {
  maxPractice:num(env.MAX_PRACTICE_PER_HANDLE_DAY,100),maxGamesMonth:num(env.MAX_GAMES_PER_MONTH,6000),
  ttl:num(env.SESSION_TTL_SECONDS,86400),maxBad:50,disabled:env.API_DISABLED==='1'};}
 
-const LEGAL_MAX=40;
-function legalInfo(g:Game,s:State){const m=g.legalMoves(s);if(ctx.getStore()?.all||m.length<=LEGAL_MAX)return {legalMoves:m};return {legalMoves:null,legalMovesCount:m.length,legalMovesSample:m.slice(0,8),moveRule:moveFormat(g.id),legalMovesNote:'Full list omitted (large). Add "legal":"all" to the request to get it.'};}
+const LEGAL_MAX=300;
+function legalInfo(g:Game,s:State){const m=g.legalMoves(s);if(ctx.getStore()?.all||m.length<=(ctx.getStore()?.max??LEGAL_MAX))return {legalMoves:m};return {legalMoves:null,legalMovesCount:m.length,legalMovesSample:m.slice(0,8),moveRule:moveFormat(g.id),legalMovesNote:'Full list omitted (large). Add "legal":"all" to the request to get it.'};}
 function view(g:Game,sess:any,extra:Record<string,unknown>={}){const s=sess.state as State;return {session:sess.id,game:g.id,mode:sess.mode,...(sess.mode==='sealed'?{index:sess.idx,of:sess.of}:{seed:sess.seed}),turn:s.turns,done:sess.done,score:g.score(s),description:g.describe(s),observation:observe(g,s),...legalInfo(g,s),...extra};}
 
 async function auth(d:Deps,req:Req){const h=req.headers['authorization']||'';const tok=(h.startsWith('Bearer ')?h.slice(7):'')||req.body?.key||req.query.key||req.body?.token||req.query.token||'';
@@ -54,6 +54,8 @@ async function start(d:Deps,req:Req){const c=cfg(d.env);const hasKey=!!((req.hea
  if(!g)throw new HttpError(400,'Unknown game. GET /api/games',{games:games.map(x=>x.id)});
  const mode=(req.body?.mode??req.query.mode??(handle?'sealed':'practice'));if(mode!=='sealed'&&mode!=='practice')throw new HttpError(400,'mode must be "sealed" or "practice"');
  if(mode==='sealed'&&!handle)throw new HttpError(400,'Ranked (sealed) play needs a handle: add "handle":"your-name" to claim one. Without a handle you can play anonymous practice.');
+ if(mode==='sealed'&&c.salt){const openId=await d.redis.cmd('GET',`a:${c.season}:${handle!.toLowerCase()}:${g.id}`);
+  if(openId){const raw=await d.redis.cmd('HGET','s:'+openId,'json');if(raw){const prev=JSON.parse(raw);if(!prev.done)return view(g,prev,{note:`Resumed your unfinished sealed instance ${prev.idx} of ${c.K} (same state, nothing new consumed). Finish it to move on.`});}}}
  if(mode==='sealed'&&!c.salt)throw new HttpError(503,'Sealed mode is not configured on this server.');
  const month=new Date(d.now()).toISOString().slice(0,7),day=new Date(d.now()).toISOString().slice(0,10);
  if(!handle){const day0=new Date(d.now()).toISOString().slice(0,10),k=`p:anon:${req.ip}:${day0}`;const n=await d.redis.cmd('INCR',k);if(n===1)await d.redis.cmd('EXPIRE',k,172800);if(n>c.maxPractice)throw new HttpError(429,'Daily anonymous practice limit reached for this address. Claim a handle for more.');}
@@ -68,6 +70,7 @@ async function start(d:Deps,req:Req){const c=cfg(d.env);const hasKey=!!((req.hea
   const pk=`p:${(handle||'').toLowerCase()}:${day}`;const p=handle?await d.redis.cmd('INCR',pk):0;if(p===1)await d.redis.cmd('EXPIRE',pk,172800);
   if(p>c.maxPractice)throw new HttpError(429,'Daily practice limit reached for this handle.');}
  const id=randomBytes(16).toString('hex');const state=g.init(seed);
+ if(mode==='sealed')await d.redis.cmd('SET',`a:${c.season}:${handle!.toLowerCase()}:${g.id}`,id,'EX',c.ttl);
  const sess={id,handle,game:g.id,mode,seed,idx,of:c.K,season:c.season,step:0,state,moves:[] as string[],bad:0,done:false};
  await d.redis.pipe([['HSET','s:'+id,'step',0,'json',JSON.stringify(sess)],['EXPIRE','s:'+id,c.ttl],['HINCRBY','st2','s:'+g.id,1]]);
  const pre=claimed?{handle,playKey:claimed.playKey,keyNote:'Your handle is claimed. This play key is shown once; send it as "key" in later /api/start calls to play as this handle. Moves need only the session id.'}:{};
@@ -115,8 +118,10 @@ async function leaderboard(d:Deps,req:Req){const c=cfg(d.env);const gid=req.quer
   return {game:g.id,board,season:p.season,seeds:p.seeds,commitment:p.commitment,note:`Submitted policies (policies/<handle>.mjs), mean over ${p.seeds} hidden seeds, evaluated in sandboxed CI.`,rows};}
  if(board==='sealed'){key=`lb:${c.season}:${g.id}`;meta={board,season:c.season,seeds:c.K,note:`Mean over ${c.K} hidden per-handle instances; unplayed count 0.`};}
  else{const sd=req.query.seed==='daily'?dailySeed():Number(req.query.seed??42);key=`lbp:${g.id}:${sd}`;meta={board:'practice',seed:sd,note:'Public seed, solvable offline.'};}
- const r=await d.redis.cmd('ZREVRANGE',key,0,24,'WITHSCORES') as string[];const rows=[];for(let i=0;i<r.length;i+=2)rows.push({rank:i/2+1,handle:r[i],score:Number(r[i+1])});
- return {game:g.id,...meta,rows};}
+ const r=await d.redis.cmd('ZREVRANGE',key,0,24,'WITHSCORES') as string[];let rows:any[]=[];for(let i=0;i<r.length;i+=2)rows.push({handle:r[i],score:Number(r[i+1])});
+ if(board==='sealed'){const p=await policyBoard(d);const refs=(p.games[g.id]??[]).map(x=>({handle:x.agent,score:x.mean,reference:true}));
+  if(refs.length){rows=[...rows,...refs].sort((a,b)=>b.score-a.score||a.handle.localeCompare(b.handle)).slice(0,25);meta.note+=' Rows marked reference are submitted policies run by CI on hidden seeds (the bar to beat), not live HTTP players.';}}
+ return {game:g.id,...meta,rows:rows.map((x,i)=>({rank:i+1,...x}))};}
 
 // Policy board: computed by the sealed CI workflow (scripts/publish-sealed.ts), stored whole under one key.
 export const POLICY_KEY='sealed:policies';
@@ -152,11 +157,11 @@ function text(base:string,action:string,r:any){const L:string[]=[];
  else if(action==='start'||action==='move'||action==='session'){L.push(`game: ${r.game}   mode: ${r.mode}${r.index?` (instance ${r.index} of ${r.of})`:` seed ${r.seed}`}`,`turn: ${r.turn}   ${r.done?'FINISHED':'in progress'}   score: ${r.score}`);if(r.playKey)L.push('',`Handle claimed: ${r.handle}`,`PLAY KEY (shown once, keep it): ${r.playKey}`,`Next start as this handle: GET ${base}/api/text/start?key=${r.playKey}&game=GAME&mode=sealed`);if(r.note)L.push(r.note);L.push('',r.description,'','observation: '+JSON.stringify(r.observation));
   if(r.done)L.push('',r.recorded?`FINAL SCORE ${r.finalScore} recorded.`:'Finished.',`Board: GET ${base}/api/text/board?game=${r.game}`);
   else{L.push('legal moves: '+(mv?mv.join(' '):`${r.legalMovesCount} options, e.g. ${(r.legalMovesSample||[]).join(' ')}. Rule: ${r.moveRule}`),'',`NEXT: GET ${base}/api/text/move?session=${r.session}&move=MOVE`);}}
- else if(action==='board'){L.push(`${r.game} leaderboard (${r.board})`,r.note,'');for(const x of r.rows)L.push(`${x.rank}. ${x.handle}  ${x.score}`);if(!r.rows.length)L.push('(no entries yet)');}
+ else if(action==='board'){L.push(`${r.game} leaderboard (${r.board})`,r.note,'');for(const x of r.rows)L.push(`${x.rank}. ${x.handle}  ${x.score}${x.reference?'  (reference policy)':''}`);if(!r.rows.length)L.push('(no entries yet)');}
  else if(action==='me'){L.push(`handle: ${r.handle}  season: ${r.season}`);for(const [g,p] of Object.entries<any>(r.sealed))L.push(`${g}: started ${p.started}/${p.of}, scores ${JSON.stringify(p.finished)}`);}
  else L.push(JSON.stringify(r));return L.join('\n')+'\n';}
 
-export const handle=(req:Req,d:Deps):Promise<Res>=>ctx.run({all:req.query.legal==='all'||req.body?.legal==='all'},()=>handleInner(req,d));
+export const handle=(req:Req,d:Deps):Promise<Res>=>ctx.run({all:req.query.legal==='all'||req.body?.legal==='all',max:Number(d.env.MAX_LEGAL_LIST)||LEGAL_MAX},()=>handleInner(req,d));
 async function handleInner(req:Req,d:Deps):Promise<Res>{
  const json=(status:number,o:unknown,h:Record<string,string>={}):Res=>({status,headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store',...CORS,...h},body:JSON.stringify(o)});
  const plain=(status:number,s:string,h:Record<string,string>={}):Res=>({status,headers:{'content-type':'text/plain; charset=utf-8','cache-control':'no-store',...CORS,...h},body:s});

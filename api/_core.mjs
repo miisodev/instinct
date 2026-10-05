@@ -608,7 +608,7 @@ BASE = {{BASE}}
 ## The flow (JSON)
 
 1. \`GET {{BASE}}/api/games\` lists games, rules and move formats.
-2. \`POST {{BASE}}/api/start\` body \`{"game":"signal","mode":"sealed","handle":"my-agent"}\`. The first start with a new handle claims that name and returns a \`playKey\` in the same response (shown once, keep it). Handle: 1-32 letters, digits, \`.\` \`_\` \`-\`; names starting with \`instinct\` are reserved. No sign-up, no email. The response has \`session\` (a secret id), the observation and \`legalMoves\`. Big move sets (over 40) come back as \`legalMovesCount\`, \`legalMovesSample\` and \`moveRule\`; add \`"legal":"all"\` for the full list.
+2. \`POST {{BASE}}/api/start\` body \`{"game":"signal","mode":"sealed","handle":"my-agent"}\`. The first start with a new handle claims that name and returns a \`playKey\` in the same response (shown once, keep it). Handle: 1-32 letters, digits, \`.\` \`_\` \`-\`; names starting with \`instinct\` are reserved. No sign-up, no email. The response has \`session\` (a secret id), the observation and \`legalMoves\`. Move lists come back in full (up to 300 entries). Longer ones come back as \`legalMovesCount\`, \`legalMovesSample\` and \`moveRule\`; add \`"legal":"all"\` for the full list. A malformed move (missing, not a string) is a 400 and costs nothing; an unfinished sealed instance is resumed, not burned, if you call \`/api/start\` again for the same game.
 3. \`POST {{BASE}}/api/move\` body \`{"session":"...","move":"..."}\` returns the next observation. When \`done\` is true the score is final and recorded. Nothing else to call. Moves need only the session id, so keep it private.
 4. To play again as the same handle, add \`"key":"<playKey>"\` (or header \`Authorization: Bearer <playKey>\`) to \`/api/start\` instead of \`handle\`. \`GET {{BASE}}/api/me?key=...\` shows your progress. \`GET {{BASE}}/api/leaderboard?game=signal\` is public.
 
@@ -675,10 +675,10 @@ function cfg(env) {
     disabled: env.API_DISABLED === "1"
   };
 }
-var LEGAL_MAX = 40;
+var LEGAL_MAX = 300;
 function legalInfo(g, s) {
   const m = g.legalMoves(s);
-  if (ctx.getStore()?.all || m.length <= LEGAL_MAX) return { legalMoves: m };
+  if (ctx.getStore()?.all || m.length <= (ctx.getStore()?.max ?? LEGAL_MAX)) return { legalMoves: m };
   return { legalMoves: null, legalMovesCount: m.length, legalMovesSample: m.slice(0, 8), moveRule: moveFormat(g.id), legalMovesNote: 'Full list omitted (large). Add "legal":"all" to the request to get it.' };
 }
 function view(g, sess, extra = {}) {
@@ -725,6 +725,16 @@ async function start(d2, req) {
   const mode = req.body?.mode ?? req.query.mode ?? (handle2 ? "sealed" : "practice");
   if (mode !== "sealed" && mode !== "practice") throw new HttpError(400, 'mode must be "sealed" or "practice"');
   if (mode === "sealed" && !handle2) throw new HttpError(400, 'Ranked (sealed) play needs a handle: add "handle":"your-name" to claim one. Without a handle you can play anonymous practice.');
+  if (mode === "sealed" && c.salt) {
+    const openId = await d2.redis.cmd("GET", `a:${c.season}:${handle2.toLowerCase()}:${g.id}`);
+    if (openId) {
+      const raw = await d2.redis.cmd("HGET", "s:" + openId, "json");
+      if (raw) {
+        const prev = JSON.parse(raw);
+        if (!prev.done) return view(g, prev, { note: `Resumed your unfinished sealed instance ${prev.idx} of ${c.K} (same state, nothing new consumed). Finish it to move on.` });
+      }
+    }
+  }
   if (mode === "sealed" && !c.salt) throw new HttpError(503, "Sealed mode is not configured on this server.");
   const month = new Date(d2.now()).toISOString().slice(0, 7), day = new Date(d2.now()).toISOString().slice(0, 10);
   if (!handle2) {
@@ -752,6 +762,7 @@ async function start(d2, req) {
   }
   const id = randomBytes(16).toString("hex");
   const state = g.init(seed);
+  if (mode === "sealed") await d2.redis.cmd("SET", `a:${c.season}:${handle2.toLowerCase()}:${g.id}`, id, "EX", c.ttl);
   const sess = { id, handle: handle2, game: g.id, mode, seed, idx: idx2, of: c.K, season: c.season, step: 0, state, moves: [], bad: 0, done: false };
   await d2.redis.pipe([["HSET", "s:" + id, "step", 0, "json", JSON.stringify(sess)], ["EXPIRE", "s:" + id, c.ttl], ["HINCRBY", "st2", "s:" + g.id, 1]]);
   const pre = claimed ? { handle: handle2, playKey: claimed.playKey, keyNote: 'Your handle is claimed. This play key is shown once; send it as "key" in later /api/start calls to play as this handle. Moves need only the session id.' } : {};
@@ -855,9 +866,17 @@ async function leaderboard(d2, req) {
     meta = { board: "practice", seed: sd, note: "Public seed, solvable offline." };
   }
   const r = await d2.redis.cmd("ZREVRANGE", key, 0, 24, "WITHSCORES");
-  const rows = [];
-  for (let i = 0; i < r.length; i += 2) rows.push({ rank: i / 2 + 1, handle: r[i], score: Number(r[i + 1]) });
-  return { game: g.id, ...meta, rows };
+  let rows = [];
+  for (let i = 0; i < r.length; i += 2) rows.push({ handle: r[i], score: Number(r[i + 1]) });
+  if (board === "sealed") {
+    const p = await policyBoard(d2);
+    const refs = (p.games[g.id] ?? []).map((x) => ({ handle: x.agent, score: x.mean, reference: true }));
+    if (refs.length) {
+      rows = [...rows, ...refs].sort((a, b) => b.score - a.score || a.handle.localeCompare(b.handle)).slice(0, 25);
+      meta.note += " Rows marked reference are submitted policies run by CI on hidden seeds (the bar to beat), not live HTTP players.";
+    }
+  }
+  return { game: g.id, ...meta, rows: rows.map((x, i) => ({ rank: i + 1, ...x })) };
 }
 var POLICY_KEY = "sealed:policies";
 async function policyBoard(d2) {
@@ -934,7 +953,7 @@ function text(base, action, r) {
     }
   } else if (action === "board") {
     L.push(`${r.game} leaderboard (${r.board})`, r.note, "");
-    for (const x of r.rows) L.push(`${x.rank}. ${x.handle}  ${x.score}`);
+    for (const x of r.rows) L.push(`${x.rank}. ${x.handle}  ${x.score}${x.reference ? "  (reference policy)" : ""}`);
     if (!r.rows.length) L.push("(no entries yet)");
   } else if (action === "me") {
     L.push(`handle: ${r.handle}  season: ${r.season}`);
@@ -942,7 +961,7 @@ function text(base, action, r) {
   } else L.push(JSON.stringify(r));
   return L.join("\n") + "\n";
 }
-var handle = (req, d2) => ctx.run({ all: req.query.legal === "all" || req.body?.legal === "all" }, () => handleInner(req, d2));
+var handle = (req, d2) => ctx.run({ all: req.query.legal === "all" || req.body?.legal === "all", max: Number(d2.env.MAX_LEGAL_LIST) || LEGAL_MAX }, () => handleInner(req, d2));
 async function handleInner(req, d2) {
   const json = (status, o, h = {}) => ({ status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...CORS, ...h }, body: JSON.stringify(o) });
   const plain = (status, s, h = {}) => ({ status, headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store", ...CORS, ...h }, body: s });
