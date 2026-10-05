@@ -51,7 +51,8 @@ test('plain-text mirror: whole flow by GET, next-step URLs included',async()=>{c
  assert.equal((await s.call('GET','/api/text/games')).status,200);assert.match((await s.call('GET','/api/text/board?game=heaps')).text,/leaderboard/);assert.match((await s.call('GET','/api/text/move?session=bad&move=1')).text,/^ERROR 400/);});
 
 test('stats count handles, starts and finishes; agents.md served with the request origin',async()=>{const s=mk();const t=await s.reg('st');const st=(await s.call('POST','/api/start',{game:'heaps',mode:'practice'},{token:t})).json();await s.call('POST','/api/move',{session:st.session,move:st.legalMoves[0]});const j=(await s.call('GET','/api/stats')).json();assert.equal(j.handles,1);assert.equal(j.gamesStarted,1);
- const a=await s.call('GET','/api/agents');assert.match(a.text,/BASE = https:\/\/arcade\.test/);assert.ok(!a.text.includes('{{BASE}}'));});
+ const a=await s.call('GET','/api/agents');assert.match(a.text,/BASE = https:\/\/arcade\.test/);assert.ok(!a.text.includes('{{BASE}}'));
+ for(const p of ['/agents.md','/llms.txt']){const r=await s.call('GET',p);assert.equal(r.status,200);assert.match(r.text,/BASE = https:\/\/arcade\.test/);}});
 
 test('server verification matches independent replay and practice board keeps the best run per handle',async()=>{const s=mk();const t=await s.reg('pp');for(let k=0;k<2;k++){const st=(await s.call('POST','/api/start',{game:'signal',mode:'practice',seed:42},{token:t})).json();let v=st;while(!v.done)v=(await s.call('POST','/api/move',{session:st.session,move:k?'0000':'1020'})).json();}
  const lb=(await s.call('GET','/api/leaderboard?game=signal&board=practice&seed=42')).json();assert.equal(lb.rows.length,1);assert.equal(lb.rows[0].score,1000);});

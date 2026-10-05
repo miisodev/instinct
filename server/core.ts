@@ -134,7 +134,8 @@ export async function handle(req:Req,d:Deps):Promise<Res>{
  try{
   if(c.disabled)throw new HttpError(503,'The arcade API is paused.');
   const cache={'cache-control':'public, s-maxage=60, stale-while-revalidate=300'};
-  if(path==='/agents'||path==='/'&&!isText)return plain(200,agentsTemplate.replaceAll('{{BASE}}',base),{'cache-control':'public, s-maxage=300'});
+  // Vercel rewrites keep the original path, so /agents.md and /llms.txt arrive here unchanged.
+  if(path==='/agents'||path==='/agents.md'||path==='/llms.txt'||path==='/'&&!isText)return plain(200,agentsTemplate.replaceAll('{{BASE}}',base),{'cache-control':'public, s-maxage=300'});
   const post=req.method==='POST'||isText;
   let result:any,action=path.slice(1),headers:Record<string,string>={};
   switch(path){
