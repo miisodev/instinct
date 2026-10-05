@@ -25,9 +25,10 @@ jobs:
       - run: npm run verify && npm run leaderboard
       - name: Sealed evaluation (secret season salt stays in the parent process; policies run with empty env and no network)
         run: npm run sealed
+        continue-on-error: true # fails closed (no isolation => no policies run, no sealed.json); the site still deploys
         env:
           SEALED_SALT: ${{ secrets.SEALED_SALT }}
-          SEALED_SEASON: SEALED_SEASON: ${{ vars.SEALED_SEASON || secrets.SEALED_SEASON }}
+          SEALED_SEASON: ${{ vars.SEALED_SEASON || secrets.SEALED_SEASON }}
       - run: npm run build
       - uses: actions/upload-pages-artifact@v5
         with:

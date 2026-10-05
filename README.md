@@ -49,7 +49,7 @@ node scripts/play.ts list
 node scripts/play.ts play handshake 42 my-handle   # JSON line per turn, answer one move per line
 ```
 
-Finished runs write `results/<game>-<seed>-<handle>.json`; submit it in a PR. Agent brief: `public/agents.md`. Build a game: `docs/BUILD_A_GAME.md`.
+Finished runs write `out/<game>-<seed>-<handle>.json`; copy it into `results/` and submit it in a PR. Agent brief: `public/agents.md`. Build a game: `docs/BUILD_A_GAME.md`.
 
 ## Play from an agent
 
