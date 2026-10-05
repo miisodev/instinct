@@ -42,7 +42,7 @@ async function purge(d:Deps,handle:string){const c=cfg(d.env);const lh=handle.to
  const [disp,hash]=await d.redis.pipe([['HGET',`pf:${c.season}:${lh}`,'handle'],['GET','h:'+lh]]);const names=[...new Set([handle,String(disp||handle)])];
  const cmds:Arg[][]=[['DEL','h:'+lh],['ZREM','act',lh]];if(hash)cmds.push(['DEL','t:'+hash]);
  cmds.push(['DEL',`pf:${c.season}:${lh}`],['DEL',`hist:${c.season}:${lh}`]);for(const n of names)cmds.push(['ZREM',`ov:${c.season}`,n]);
- for(const g of games){for(const n of names)cmds.push(['ZREM',`lb:${c.season}:${g.id}`,n]);cmds.push(['HDEL','rt:'+g.id,lh],['DEL',`r:${c.season}:${g.id}:${lh}`],['DEL',`n:${c.season}:${lh}:${g.id}`],['DEL',`a:${c.season}:${lh}:${g.id}`]);}
+ for(const g of games){for(const n of names)cmds.push(['ZREM',`lb:${c.season}:${g.id}`,n]);cmds.push(['HDEL',sk(d,'rt')+':'+g.id,lh],['DEL',`r:${c.season}:${g.id}:${lh}`],['DEL',`n:${c.season}:${lh}:${g.id}`],['DEL',`a:${c.season}:${lh}:${g.id}`]);}
  await d.redis.pipe(cmds);return cmds.length;}
 async function prune(d:Deps){try{const ok=await d.redis.cmd('SET','prune:last','1','NX','EX',3600);if(!ok)return;
  const old=await d.redis.cmd('ZRANGEBYSCORE','act','-inf',d.now(),'LIMIT',0,10) as string[];for(const lh of old)await purge(d,lh);}catch{/* best effort */}}
@@ -61,7 +61,7 @@ async function register(d:Deps,req:Req){const c=cfg(d.env);const handle=req.body
  const token=randomBytes(24).toString('base64url');const hash=sha(token);
  const ok=await d.redis.cmd('SET','h:'+lh0,hash,'NX');
  if(!ok)throw new HttpError(409,'That handle is already claimed. If it is yours, send its play key ("key"); otherwise pick another handle.');
- await d.redis.pipe([['SET','t:'+hash,handle],['HINCRBY','st2','reg',1]]);await touch(d,handle,hash);
+ await d.redis.pipe([['SET','t:'+hash,handle],['HINCRBY',sk(d,'st2'),'reg',1]]);await touch(d,handle,hash);
  return {handle,token,playKey:token,note:'Handle claimed. This play key is shown once; send it as "key" to play again as this handle.'};}
 
 async function start(d:Deps,req:Req){const c=cfg(d.env);const hasKey=!!((req.headers['authorization']||'').startsWith('Bearer ')||req.body?.key||req.query.key||req.body?.token||req.query.token);
@@ -92,7 +92,7 @@ async function start(d:Deps,req:Req){const c=cfg(d.env);const hasKey=!!((req.hea
  if(mode==='sealed')await d.redis.cmd('SET',`a:${c.season}:${handle!.toLowerCase()}:${g.id}`,id,'EX',c.ttl);
  const slot=idx?((idx-1)%c.K)+1:0,attempt=idx?Math.floor((idx-1)/c.K)+1:0;
  const sess={id,handle,th,game:g.id,mode,seed,idx,slot,attempt,of:c.K,season:c.season,step:0,state,moves:[] as string[],bad:0,done:false};
- await d.redis.pipe([['HSET','s:'+id,'step',0,'json',JSON.stringify(sess)],['EXPIRE','s:'+id,c.ttl],['HINCRBY','st2','s:'+g.id,1]]);
+ await d.redis.pipe([['HSET','s:'+id,'step',0,'json',JSON.stringify(sess)],['EXPIRE','s:'+id,c.ttl],['HINCRBY',sk(d,'st2'),'s:'+g.id,1]]);
  const pre=claimed?{handle,playKey:claimed.playKey,keyNote:'Your handle is claimed. This play key is shown once; send it as "key" in later /api/start calls to play as this handle. Moves need only the session id.'}:{};
  return view(g,sess,{...pre,...(mode==='sealed'?{note:`Ranked run ${idx} of ${c.K*c.A}: slot ${slot} of ${c.K}, attempt ${attempt} of ${c.A}. Each slot keeps its best attempt, and your board score is the mean of the ${c.K} slot bests (empty slots count 0). Every attempt is a fresh hidden instance.`}:{note:handle?'Casual: public seed, solvable offline, not ranked.':'Casual: anonymous, public seed, not ranked. Add "handle" to claim a name and play ranked.'})});}
 
@@ -100,14 +100,15 @@ async function load(d:Deps,id:unknown){if(typeof id!=='string'||!/^[a-f0-9]{32}$
  const raw=await d.redis.cmd('HGET','s:'+id,'json');if(!raw)throw new HttpError(404,'Session not found or expired. Start a new one.');return JSON.parse(raw);}
 
 const RUN_TTL=7776000;
+const sk=(d:Deps,k:string)=>`${k}:${cfg(d.env).season}`;// season-scoped key
 const FEED_MAX=30;
 async function daily(d:Deps,sess:any,g:Game,h:string,pk:string,lh:string,score:number){const today=dayKey(d.now());if(dailyGame(d.now()).id!==g.id)return;
  const [dd,ds,db]=await d.redis.pipe([['HGET',pk,'dd'],['HGET',pk,'ds'],['HGET',pk,'db']]) as (string|null)[];
- const cmds:Arg[][]=[['ZADD','dl:'+today,'GT',score,h],['EXPIRE','dl:'+today,259200]];
+ const cmds:Arg[][]=[['ZADD',sk(d,'dl')+':'+today,'GT',score,h],['EXPIRE',sk(d,'dl')+':'+today,259200]];
  if(dd!==today){const y=dayKey(d.now()-86400000);const n=dd===y?Number(ds||0)+1:1;cmds.push(['HSET',pk,'dd',today,'ds',n,'db',Math.max(n,Number(db||0))]);}
  await d.redis.pipe(cmds);}
 async function record(d:Deps,sess:any,g:Game,score:number){const c=cfg(d.env);const h=sess.handle;
- if(!h||sess.mode!=='sealed'){await d.redis.cmd('HINCRBY','st2','f:'+g.id,1);return;}
+ if(!h||sess.mode!=='sealed'){await d.redis.cmd('HINCRBY',sk(d,'st2'),'f:'+g.id,1);return;}
 await touch(d,h,sess.th);
  const lh=h.toLowerCase(),rk=`r:${sess.season}:${g.id}:${lh}`,pk=`pf:${sess.season}:${lh}`,slot=String(sess.slot??sess.idx);
  const [prev,bestRaw]=await d.redis.pipe([['HGET',rk,slot],['HGET',pk,'b:'+g.id]]);
@@ -115,9 +116,9 @@ await touch(d,h,sess.th);
  const all=flat(await d.redis.cmd('HGETALL',rk));let sum=0;for(let i=1;i<=c.K;i++)sum+=Number(all[String(i)]||0);const mean=Math.round(sum/c.K*10)/10;
  const run={id:sess.id,handle:h,game:g.id,slot:Number(slot),attempt:sess.attempt??1,score,turns:(sess.state as State).turns,ts:d.now(),moves:sess.moves,final:sess.state,seed:sess.seed};
  const brief={id:sess.id,game:g.id,slot:run.slot,attempt:run.attempt,score,turns:run.turns,ts:run.ts};
- await d.redis.pipe([['ZADD',`lb:${sess.season}:${g.id}`,mean,h],['HSET',pk,'handle',h,'s:'+g.id,mean],['HINCRBY',pk,'n:'+g.id,1],['HINCRBY','st2','f:'+g.id,1],
+ await d.redis.pipe([['ZADD',`lb:${sess.season}:${g.id}`,mean,h],['HSET',pk,'handle',h,'s:'+g.id,mean],['HINCRBY',pk,'n:'+g.id,1],['HINCRBY',sk(d,'st2'),'f:'+g.id,1],
   ...(bestRaw===null||score>Number(bestRaw)?[['HSET',pk,'b:'+g.id,score]]:[]),
-  ['LPUSH',`hist:${sess.season}:${lh}`,JSON.stringify(brief)],['LTRIM',`hist:${sess.season}:${lh}`,0,49],['SET','run:'+sess.id,JSON.stringify(run),'EX',RUN_TTL],['LPUSH','feed',JSON.stringify({id:run.id,h,g:g.id,s:score,t:run.turns,ts:run.ts})],['LTRIM','feed',0,FEED_MAX-1]]);
+  ['LPUSH',`hist:${sess.season}:${lh}`,JSON.stringify(brief)],['LTRIM',`hist:${sess.season}:${lh}`,0,49],['SET','run:'+sess.id,JSON.stringify(run),'EX',RUN_TTL],['LPUSH',sk(d,'feed'),JSON.stringify({id:run.id,h,g:g.id,s:score,t:run.turns,ts:run.ts})],['LTRIM',sk(d,'feed'),0,FEED_MAX-1]]);
  await daily(d,sess,g,h,pk,lh,score);
  const pf=flat(await d.redis.cmd('HGETALL',pk));let total=0;for(const [k,v] of Object.entries(pf))if(k.startsWith('s:'))total+=Number(v);
  await d.redis.cmd('ZADD',`ov:${sess.season}`,Math.round(total*10)/10,h);}
@@ -165,9 +166,9 @@ async function runView(d:Deps,req:Req){const id=req.query.id;if(typeof id!=='str
  let frames:unknown[]|undefined;if(g&&typeof r.seed==='number'&&r.moves.length<=120){try{let st=g.init(r.seed);frames=[observe(g,st)];for(const m of r.moves){st=advance(g,st,m);frames.push(observe(g,st));}if(g.score(st)!==r.score)frames=undefined;}catch{frames=undefined;}}
  const pb=await policyBoard(d);
  return {id:r.id,handle:r.handle,game:r.game,slot:r.slot,attempt:r.attempt,score:r.score,turns:r.turns,ts:r.ts,tier:tierOf(tierBounds(pb.games[r.game]),r.score),moves:r.moves,final:g?observe(g,r.final):r.final,...(frames?{frames}:{})};}
-async function feed(d:Deps){const raw=await d.redis.cmd('LRANGE','feed',0,19) as string[]||[];let rows=raw.map(x=>{const o=JSON.parse(x);return {id:o.id,handle:o.h,game:o.g,score:o.s,turns:o.t,ts:o.ts};});
+async function feed(d:Deps){const raw=await d.redis.cmd('LRANGE',sk(d,'feed'),0,19) as string[]||[];let rows=raw.map(x=>{const o=JSON.parse(x);return {id:o.id,handle:o.h,game:o.g,score:o.s,turns:o.t,ts:o.ts};});
  rows=(await liveRows(d,rows.map(r=>({...r})))).slice(0,20);return {note:'Latest finished ranked runs, newest first. Cached about a minute.',rows};}
-async function dailyView(d:Deps){const t=dayKey(d.now());const g=dailyGame(d.now());const r=await d.redis.cmd('ZREVRANGE','dl:'+t,0,9,'WITHSCORES') as string[]||[];let rows:any[]=[];for(let i=0;i<r.length;i+=2)rows.push({handle:r[i],score:Number(r[i+1])});rows=(await liveRows(d,rows)).map((x,i)=>({rank:i+1,...x}));
+async function dailyView(d:Deps){const t=dayKey(d.now());const g=dailyGame(d.now());const r=await d.redis.cmd('ZREVRANGE',sk(d,'dl')+':'+t,0,9,'WITHSCORES') as string[]||[];let rows:any[]=[];for(let i=0;i<r.length;i+=2)rows.push({handle:r[i],score:Number(r[i+1])});rows=(await liveRows(d,rows)).map((x,i)=>({rank:i+1,...x}));
  const next=new Date(d.now());next.setUTCHours(24,0,0,0);
  return {date:t,game:g.id,name:g.name,rules:g.description,moveFormat:moveFormat(g.id),nextResetUtc:next.toISOString(),howItWorks:'Finish any ranked run of today\'s game (UTC day) to keep your streak. Miss a whole UTC day and it resets to 1. Streaks expire with the handle after 14 idle days.',rows};}
 function svg(body:string,maxAge:number,status=200):Res{return {status,headers:{'content-type':'image/svg+xml; charset=utf-8','cache-control':`public, max-age=300, s-maxage=${maxAge}, stale-while-revalidate=600`,...CORS},body};}
@@ -209,7 +210,7 @@ type PolicyBoard={season:string|null;dev?:boolean;seeds:number;commitment?:strin
 async function policyBoard(d:Deps):Promise<PolicyBoard>{const raw=await d.redis.cmd('GET',POLICY_KEY) as string|null;if(!raw)return {season:null,seeds:0,games:{}};return JSON.parse(raw);}
 
 const flat=(a:any):Record<string,string>=>{if(Array.isArray(a)){const o:Record<string,string>={};for(let i=0;i+1<a.length;i+=2)o[String(a[i])]=String(a[i+1]);return o;}return a&&typeof a==='object'?Object.fromEntries(Object.entries(a).map(([k,v])=>[k,String(v)])):{};};
-async function stats(d:Deps){const h=flat(await d.redis.cmd('HGETALL','st2'));const s:Record<string,number>={},f:Record<string,number>={};
+async function stats(d:Deps){const h=flat(await d.redis.cmd('HGETALL',sk(d,'st2')));const s:Record<string,number>={},f:Record<string,number>={};
  for(const [k,v] of Object.entries(h)){if(k.startsWith('s:'))s[k.slice(2)]=Number(v);else if(k.startsWith('f:'))f[k.slice(2)]=Number(v);}
  const sum=(o:Record<string,number>)=>Object.values(o).reduce((a,b)=>a+b,0);
  return {handles:Number(h.reg||0),gamesStarted:sum(s),gamesFinished:sum(f),startedByGame:s,finishedByGame:f};}
@@ -229,9 +230,9 @@ async function rate(d:Deps,req:Req){const c=cfg(d.env);const [handle,th]=await a
  const gid=req.body?.game??req.query.game;const g=games.find(x=>x.id===gid);if(!g)throw new HttpError(400,'game=<id> required',{games:games.map(x=>x.id)});
  const rating=Number(req.body?.rating??req.query.rating);if(!Number.isInteger(rating)||rating<1||rating>10)throw new HttpError(400,'rating must be a whole number from 1 to 10');
  const played=Number(await d.redis.cmd('HLEN',`r:${c.season}:${g.id}:${lh}`))>0;if(!played)throw new HttpError(403,`Finish a ranked run of ${g.id} this season before rating it.`);
- await d.redis.cmd('HSET','rt:'+g.id,lh,rating);await touch(d,handle,th);
+ await d.redis.cmd('HSET',sk(d,'rt')+':'+g.id,lh,rating);await touch(d,handle,th);
  return {handle,game:g.id,rating,...(await ratings(d))[g.id]};}
-async function ratings(d:Deps):Promise<Record<string,{avg:number|null;count:number}>>{const vals=await d.redis.pipe(games.map(g=>['HVALS','rt:'+g.id])) as (string[]|null)[];
+async function ratings(d:Deps):Promise<Record<string,{avg:number|null;count:number}>>{const vals=await d.redis.pipe(games.map(g=>['HVALS',sk(d,'rt')+':'+g.id])) as (string[]|null)[];
  return Object.fromEntries(games.map((g,i)=>{const v=(vals[i]||[]).map(Number).filter(x=>x>=1&&x<=10);return [g.id,{avg:v.length?Math.round(v.reduce((a,b)=>a+b,0)/v.length*10)/10:null,count:v.length}];}));}
 function gamesList(){return {games:games.map(g=>({id:g.id,name:g.name,category:g.category,maxTurns:g.maxTurns,openBook:!!g.openBook,rules:g.description,moveFormat:moveFormat(g.id)}))};}
 function moveFormat(id:string){return ({signal:'4 digits, each 0-3, e.g. "1020"',gridshift:'index (0-8) of the tile to slide into the gap, as a string',vault:'one of up, down, left, right, extract',handshake:'"C" (cooperate) or "D" (defect)',radar:'"row,col" with 0-7, e.g. "3,4"',heaps:'"heap:count", e.g. "2:3"',fourrows:'column 0-6 as a string',courier:'stop index 0-23 as a string',minefield:'"row,col" with 0-7, e.g. "3,4"',lights:'cell index 0-24 as a string',prospector:'claim index 0-5 as a string',nextterm:'a whole number 0-999 as a string, e.g. "42"'} as Record<string,string>)[id]??'see legalMoves';}

@@ -214,3 +214,15 @@ test('v0.6.0: ratings need a finished ranked run, one per handle per game, avera
  assert.deepEqual((await s.call('GET','/api/ratings')).json().ratings.signal,{avg:null,count:0});
  s.tick(15*86400000);s.redis.kv.delete('prune:last');await s.call('GET','/api/leaderboard',{},{query:{game:'lights'}});
  assert.deepEqual((await s.call('GET','/api/ratings')).json().ratings.lights,{avg:null,count:0},'expired handles take their ratings with them');});
+
+test('v0.6.0: a season bump starts boards, overview, feed, daily, ratings and stats fresh without deleting the old season',async()=>{const s=mk();
+ const st=(await s.call('POST','/api/start',{game:'lights',mode:'ranked',handle:'veteran'})).json();let v=st,n=0;while(!v.done&&n++<100)v=(await s.call('POST','/api/move',{session:st.session,move:v.legalMoves[0]})).json();
+ await s.call('POST','/api/rate',{key:st.playKey,game:'lights',rating:8});
+ assert.equal((await s.call('GET','/api/feed')).json().rows.length,1);assert.equal((await s.call('GET','/api/ratings')).json().ratings.lights.count,1);
+ s.deps.env.SEALED_SEASON='t2';
+ assert.equal((await s.call('GET','/api/leaderboard',{},{query:{game:'lights'}})).json().rows.filter((r:any)=>!r.reference).length,0);
+ assert.equal((await s.call('GET','/api/overview')).json().rows.filter((r:any)=>!r.reference).length,0);
+ assert.equal((await s.call('GET','/api/feed')).json().rows.length,0);assert.deepEqual((await s.call('GET','/api/ratings')).json().ratings.lights,{avg:null,count:0});
+ assert.equal((await s.call('GET','/api/stats')).json().gamesFinished,0);
+ assert.equal((await s.call('GET','/api/me',{},{token:st.playKey})).json().ranked.lights.runsUsed,0,'fresh slots in the new season');
+ s.deps.env.SEALED_SEASON='t1';assert.equal((await s.call('GET','/api/feed')).json().rows.length,1,'old season still readable');});

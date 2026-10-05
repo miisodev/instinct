@@ -1080,7 +1080,7 @@ async function purge(d2, handle2) {
   for (const n of names) cmds.push(["ZREM", `ov:${c.season}`, n]);
   for (const g of games) {
     for (const n of names) cmds.push(["ZREM", `lb:${c.season}:${g.id}`, n]);
-    cmds.push(["HDEL", "rt:" + g.id, lh], ["DEL", `r:${c.season}:${g.id}:${lh}`], ["DEL", `n:${c.season}:${lh}:${g.id}`], ["DEL", `a:${c.season}:${lh}:${g.id}`]);
+    cmds.push(["HDEL", sk(d2, "rt") + ":" + g.id, lh], ["DEL", `r:${c.season}:${g.id}:${lh}`], ["DEL", `n:${c.season}:${lh}:${g.id}`], ["DEL", `a:${c.season}:${lh}:${g.id}`]);
   }
   await d2.redis.pipe(cmds);
   return cmds.length;
@@ -1126,7 +1126,7 @@ async function register(d2, req) {
   const hash = sha(token);
   const ok = await d2.redis.cmd("SET", "h:" + lh0, hash, "NX");
   if (!ok) throw new HttpError(409, 'That handle is already claimed. If it is yours, send its play key ("key"); otherwise pick another handle.');
-  await d2.redis.pipe([["SET", "t:" + hash, handle2], ["HINCRBY", "st2", "reg", 1]]);
+  await d2.redis.pipe([["SET", "t:" + hash, handle2], ["HINCRBY", sk(d2, "st2"), "reg", 1]]);
   await touch(d2, handle2, hash);
   return { handle: handle2, token, playKey: token, note: 'Handle claimed. This play key is shown once; send it as "key" to play again as this handle.' };
 }
@@ -1195,7 +1195,7 @@ async function start(d2, req) {
   if (mode === "sealed") await d2.redis.cmd("SET", `a:${c.season}:${handle2.toLowerCase()}:${g.id}`, id, "EX", c.ttl);
   const slot = idx2 ? (idx2 - 1) % c.K + 1 : 0, attempt = idx2 ? Math.floor((idx2 - 1) / c.K) + 1 : 0;
   const sess = { id, handle: handle2, th, game: g.id, mode, seed, idx: idx2, slot, attempt, of: c.K, season: c.season, step: 0, state, moves: [], bad: 0, done: false };
-  await d2.redis.pipe([["HSET", "s:" + id, "step", 0, "json", JSON.stringify(sess)], ["EXPIRE", "s:" + id, c.ttl], ["HINCRBY", "st2", "s:" + g.id, 1]]);
+  await d2.redis.pipe([["HSET", "s:" + id, "step", 0, "json", JSON.stringify(sess)], ["EXPIRE", "s:" + id, c.ttl], ["HINCRBY", sk(d2, "st2"), "s:" + g.id, 1]]);
   const pre = claimed ? { handle: handle2, playKey: claimed.playKey, keyNote: 'Your handle is claimed. This play key is shown once; send it as "key" in later /api/start calls to play as this handle. Moves need only the session id.' } : {};
   return view(g, sess, { ...pre, ...mode === "sealed" ? { note: `Ranked run ${idx2} of ${c.K * c.A}: slot ${slot} of ${c.K}, attempt ${attempt} of ${c.A}. Each slot keeps its best attempt, and your board score is the mean of the ${c.K} slot bests (empty slots count 0). Every attempt is a fresh hidden instance.` } : { note: handle2 ? "Casual: public seed, solvable offline, not ranked." : 'Casual: anonymous, public seed, not ranked. Add "handle" to claim a name and play ranked.' } });
 }
@@ -1206,12 +1206,13 @@ async function load(d2, id) {
   return JSON.parse(raw);
 }
 var RUN_TTL = 7776e3;
+var sk = (d2, k) => `${k}:${cfg(d2.env).season}`;
 var FEED_MAX = 30;
 async function daily(d2, sess, g, h, pk, lh, score) {
   const today = dayKey(d2.now());
   if (dailyGame(d2.now()).id !== g.id) return;
   const [dd, ds, db] = await d2.redis.pipe([["HGET", pk, "dd"], ["HGET", pk, "ds"], ["HGET", pk, "db"]]);
-  const cmds = [["ZADD", "dl:" + today, "GT", score, h], ["EXPIRE", "dl:" + today, 259200]];
+  const cmds = [["ZADD", sk(d2, "dl") + ":" + today, "GT", score, h], ["EXPIRE", sk(d2, "dl") + ":" + today, 259200]];
   if (dd !== today) {
     const y = dayKey(d2.now() - 864e5);
     const n = dd === y ? Number(ds || 0) + 1 : 1;
@@ -1223,7 +1224,7 @@ async function record(d2, sess, g, score) {
   const c = cfg(d2.env);
   const h = sess.handle;
   if (!h || sess.mode !== "sealed") {
-    await d2.redis.cmd("HINCRBY", "st2", "f:" + g.id, 1);
+    await d2.redis.cmd("HINCRBY", sk(d2, "st2"), "f:" + g.id, 1);
     return;
   }
   await touch(d2, h, sess.th);
@@ -1240,13 +1241,13 @@ async function record(d2, sess, g, score) {
     ["ZADD", `lb:${sess.season}:${g.id}`, mean, h],
     ["HSET", pk, "handle", h, "s:" + g.id, mean],
     ["HINCRBY", pk, "n:" + g.id, 1],
-    ["HINCRBY", "st2", "f:" + g.id, 1],
+    ["HINCRBY", sk(d2, "st2"), "f:" + g.id, 1],
     ...bestRaw === null || score > Number(bestRaw) ? [["HSET", pk, "b:" + g.id, score]] : [],
     ["LPUSH", `hist:${sess.season}:${lh}`, JSON.stringify(brief)],
     ["LTRIM", `hist:${sess.season}:${lh}`, 0, 49],
     ["SET", "run:" + sess.id, JSON.stringify(run), "EX", RUN_TTL],
-    ["LPUSH", "feed", JSON.stringify({ id: run.id, h, g: g.id, s: score, t: run.turns, ts: run.ts })],
-    ["LTRIM", "feed", 0, FEED_MAX - 1]
+    ["LPUSH", sk(d2, "feed"), JSON.stringify({ id: run.id, h, g: g.id, s: score, t: run.turns, ts: run.ts })],
+    ["LTRIM", sk(d2, "feed"), 0, FEED_MAX - 1]
   ]);
   await daily(d2, sess, g, h, pk, lh, score);
   const pf = flat(await d2.redis.cmd("HGETALL", pk));
@@ -1377,7 +1378,7 @@ async function runView(d2, req) {
   return { id: r.id, handle: r.handle, game: r.game, slot: r.slot, attempt: r.attempt, score: r.score, turns: r.turns, ts: r.ts, tier: tierOf(tierBounds(pb.games[r.game]), r.score), moves: r.moves, final: g ? observe(g, r.final) : r.final, ...frames ? { frames } : {} };
 }
 async function feed(d2) {
-  const raw = await d2.redis.cmd("LRANGE", "feed", 0, 19) || [];
+  const raw = await d2.redis.cmd("LRANGE", sk(d2, "feed"), 0, 19) || [];
   let rows3 = raw.map((x) => {
     const o = JSON.parse(x);
     return { id: o.id, handle: o.h, game: o.g, score: o.s, turns: o.t, ts: o.ts };
@@ -1388,7 +1389,7 @@ async function feed(d2) {
 async function dailyView(d2) {
   const t = dayKey(d2.now());
   const g = dailyGame(d2.now());
-  const r = await d2.redis.cmd("ZREVRANGE", "dl:" + t, 0, 9, "WITHSCORES") || [];
+  const r = await d2.redis.cmd("ZREVRANGE", sk(d2, "dl") + ":" + t, 0, 9, "WITHSCORES") || [];
   let rows3 = [];
   for (let i = 0; i < r.length; i += 2) rows3.push({ handle: r[i], score: Number(r[i + 1]) });
   rows3 = (await liveRows(d2, rows3)).map((x, i) => ({ rank: i + 1, ...x }));
@@ -1493,7 +1494,7 @@ var flat = (a) => {
   return a && typeof a === "object" ? Object.fromEntries(Object.entries(a).map(([k, v]) => [k, String(v)])) : {};
 };
 async function stats(d2) {
-  const h = flat(await d2.redis.cmd("HGETALL", "st2"));
+  const h = flat(await d2.redis.cmd("HGETALL", sk(d2, "st2")));
   const s = {}, f = {};
   for (const [k, v] of Object.entries(h)) {
     if (k.startsWith("s:")) s[k.slice(2)] = Number(v);
@@ -1531,12 +1532,12 @@ async function rate(d2, req) {
   if (!Number.isInteger(rating) || rating < 1 || rating > 10) throw new HttpError(400, "rating must be a whole number from 1 to 10");
   const played = Number(await d2.redis.cmd("HLEN", `r:${c.season}:${g.id}:${lh}`)) > 0;
   if (!played) throw new HttpError(403, `Finish a ranked run of ${g.id} this season before rating it.`);
-  await d2.redis.cmd("HSET", "rt:" + g.id, lh, rating);
+  await d2.redis.cmd("HSET", sk(d2, "rt") + ":" + g.id, lh, rating);
   await touch(d2, handle2, th);
   return { handle: handle2, game: g.id, rating, ...(await ratings(d2))[g.id] };
 }
 async function ratings(d2) {
-  const vals = await d2.redis.pipe(games.map((g) => ["HVALS", "rt:" + g.id]));
+  const vals = await d2.redis.pipe(games.map((g) => ["HVALS", sk(d2, "rt") + ":" + g.id]));
   return Object.fromEntries(games.map((g, i) => {
     const v = (vals[i] || []).map(Number).filter((x) => x >= 1 && x <= 10);
     return [g.id, { avg: v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length * 10) / 10 : null, count: v.length }];
