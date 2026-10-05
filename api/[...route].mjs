@@ -4,9 +4,12 @@ import {upstash} from './_redis.mjs';
 export default async function handler(req, res) {
   const url = new URL(req.url, 'http://x');
   const chunks = [];
-  let body = req.body;
-  if (body === undefined) { for await (const c of req) chunks.push(c); const raw = Buffer.concat(chunks).toString('utf8'); try { body = raw ? JSON.parse(raw) : {}; } catch { body = {}; } }
-  else if (typeof body === 'string') { try { body = JSON.parse(body); } catch { body = {}; } }
+  let body;
+  try {
+    body = req.body;
+    if (body === undefined) { for await (const c of req) chunks.push(c); const raw = Buffer.concat(chunks).toString('utf8'); body = raw ? JSON.parse(raw) : {}; }
+    else if (typeof body === 'string') body = body ? JSON.parse(body) : {};
+  } catch { body = { __badJson: true }; }
   const h = req.headers;
   const out = await handle({
     method: req.method, path: url.pathname, query: Object.fromEntries(url.searchParams), body: body || {},

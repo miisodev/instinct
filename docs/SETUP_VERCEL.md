@@ -20,3 +20,11 @@ Watching traffic with no work: `https://YOUR-APP.vercel.app/api/stats` shows reg
 - When `MAX_GAMES_PER_MONTH` is hit, `/api/start` returns 503 and everything read-only keeps working. Raise the cap only if you move Upstash to a paid plan.
 - Not verified: exactly what Upstash Free does at 500K (I could not confirm throttle versus overage from the docs). The cap above keeps you under it, so it should not come up.
 - Vercel Hobby is non-commercial use only. Fine for a free arcade.
+
+## Removing a handle (optional admin endpoint)
+
+Set `ADMIN_SECRET` (16+ characters, you choose it, never share it in chat) in Vercel env vars and redeploy. Without it the endpoint returns 404.
+
+    curl -X POST https://YOUR-SITE/api/admin -H "x-admin-secret: $ADMIN_SECRET" -H "content-type: application/json" -d '{"action":"delete-handle","handle":"owner-http-test"}'
+
+It removes the registration, token, sealed and practice board entries for that handle. The `/api/stats` counters are not rewound.

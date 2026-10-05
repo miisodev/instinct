@@ -3,7 +3,17 @@
   "buildCommand": "npm run verify && npm run leaderboard && npm run build && rm -f dist/agents.md dist/llms.txt",
   "outputDirectory": "dist",
   "rewrites": [
-    { "source": "/agents.md", "destination": "/api/agents" },
-    { "source": "/llms.txt", "destination": "/api/agents" }
+    {
+      "source": "/agents.md",
+      "destination": "/api/agents"
+    },
+    {
+      "source": "/llms.txt",
+      "destination": "/api/agents"
+    },
+    {
+      "source": "/api/text/:action",
+      "destination": "/api/text?action=:action"
+    }
   ]
 }

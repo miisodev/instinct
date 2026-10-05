@@ -1,3 +1,4 @@
+import {readFileSync} from 'node:fs';
 import test from 'node:test';import assert from 'node:assert/strict';
 import {handle,type Req} from '../server/core.ts';import {mockRedis} from './mockRedis.ts';import {games} from '../src/games/index.ts';
 import {bundle,current} from '../scripts/bundle-api.ts';
@@ -13,7 +14,7 @@ test('register: token once, handle unique (case-insensitive), reserved prefix, b
 
 test('full sealed run of every game via HTTP, scored server-side, recorded on the board',async()=>{const s=mk();const tok=await s.reg('bot');
  for(const g of games){const st=(await s.call('POST','/api/start',{game:g.id,mode:'sealed'},{token:tok})).json();assert.equal(st.index,1);assert.equal('secret' in st.observation,false);assert.equal('ships' in st.observation,false);assert.equal('opp' in st.observation,false);
-  let v=st;let n=0;while(!v.done&&n++<100){const m=v.legalMoves[0];const r=await s.call('POST','/api/move',{session:st.session,move:m});assert.equal(r.status,200);v=r.json();}
+  let v=st;let n=0;while(!v.done&&n++<100){const m=(v.legalMoves||v.legalMovesSample)[0];const r=await s.call('POST','/api/move',{session:st.session,move:m});assert.equal(r.status,200);v=r.json();}
   assert.equal(v.done,true);assert.equal(v.recorded,true);assert.equal(v.finalScore,v.score);
   const lb=(await s.call('GET','/api/leaderboard?game='+g.id)).json();assert.equal(lb.rows[0].handle,'bot');}
  const me=(await s.call('GET','/api/me',{},{token:tok})).json();assert.equal(me.sealed.signal.started,1);});
@@ -34,9 +35,9 @@ test('illegal moves rejected, 50 end the session at score 0',async()=>{const s=m
  assert.equal(last.status,200);assert.equal(last.json().done,true);assert.equal(last.json().finalScore,0);assert.equal((await s.call('GET','/api/leaderboard?game=heaps')).json().rows[0].score,0);});
 
 test('no rewind or branching: concurrent moves conflict, finished sessions are final',async()=>{const s=mk();const t=await s.reg('r');const st=(await s.call('POST','/api/start',{game:'gridshift',mode:'practice',seed:1},{token:t})).json();
- const [x,y]=await Promise.all([s.call('POST','/api/move',{session:st.session,move:st.legalMoves[0]}),s.call('POST','/api/move',{session:st.session,move:st.legalMoves[0]})]);assert.deepEqual([x.status,y.status].sort(),[200,409]);});
+ const [x,y]=await Promise.all([s.call('POST','/api/move',{session:st.session,move:(st.legalMoves||st.legalMovesSample)[0]}),s.call('POST','/api/move',{session:st.session,move:(st.legalMoves||st.legalMovesSample)[0]})]);assert.deepEqual([x.status,y.status].sort(),[200,409]);});
 
-test('auth: no token, bad token, session id is not guessable input',async()=>{const s=mk();assert.equal((await s.call('POST','/api/start',{game:'signal'})).status,401);assert.equal((await s.call('POST','/api/start',{game:'signal'},{token:'x'.repeat(40)})).status,401);assert.equal((await s.call('POST','/api/move',{session:'zz',move:'a'})).status,400);assert.equal((await s.call('POST','/api/move',{session:'0'.repeat(32),move:'a'})).status,404);});
+test('auth: no token, bad token, session id is not guessable input',async()=>{const s=mk();assert.equal((await s.call('POST','/api/start',{game:'signal',mode:'sealed'})).status,400);assert.equal((await s.call('POST','/api/start',{game:'signal'},{token:'x'.repeat(40)})).status,401);assert.equal((await s.call('POST','/api/move',{session:'zz',move:'a'})).status,400);assert.equal((await s.call('POST','/api/move',{session:'0'.repeat(32),move:'a'})).status,404);});
 
 test('abuse caps: per-IP registration, daily registrations, monthly game capacity, kill switch',async()=>{const s=mk({MAX_REGS_PER_IP_HOUR:'2'});await s.reg('i1','9.9.9.9');await s.reg('i2','9.9.9.9');assert.equal((await s.call('POST','/api/register',{handle:'i3'},{ip:'9.9.9.9'})).status,429);assert.equal((await s.call('POST','/api/register',{handle:'i3'},{ip:'8.8.8.8'})).status,200);
  const d=mk({MAX_REGS_PER_DAY:'1'});await d.reg('d1');assert.equal((await d.call('POST','/api/register',{handle:'d2'},{ip:'4.4.4.4'})).status,503);
@@ -45,22 +46,73 @@ test('abuse caps: per-IP registration, daily registrations, monthly game capacit
 
 test('sealed mode refuses to run without a salt (fail closed)',async()=>{const s=mk({SEALED_SALT:''});const t=await s.reg('n');assert.equal((await s.call('POST','/api/start',{game:'signal',mode:'sealed'},{token:t})).status,503);});
 
-test('plain-text mirror: whole flow by GET, next-step URLs included',async()=>{const s=mk();const r=await s.call('GET','/api/text/register?handle=txt');assert.match(r.text,/TOKEN: \S+/);const tok=r.text.match(/TOKEN: (\S+)/)![1];
- const st=await s.call('GET',`/api/text/start?token=${tok}&game=heaps&mode=sealed`);assert.match(st.text,/NEXT: GET https:\/\/arcade\.test\/api\/text\/move\?session=/);const sid=st.text.match(/session=([a-f0-9]{32})/)![1];
+test('plain-text mirror: whole flow by GET, next-step URLs included',async()=>{const s=mk();const st=await s.call('GET','/api/text/start?handle=txt&game=heaps&mode=sealed');assert.match(st.text,/PLAY KEY[^:]*: \S+/);assert.match(st.text,/NEXT: GET https:\/\/arcade\.test\/api\/text\/move\?session=/);const sid=st.text.match(/session=([a-f0-9]{32})/)![1];
  const mv=st.text.match(/legal moves: (\S+)/)![1];const m=await s.call('GET',`/api/text/move?session=${sid}&move=${mv}`);assert.match(m.text,/turn: 1/);
  assert.equal((await s.call('GET','/api/text/games')).status,200);assert.match((await s.call('GET','/api/text/board?game=heaps')).text,/leaderboard/);assert.match((await s.call('GET','/api/text/move?session=bad&move=1')).text,/^ERROR 400/);});
 
-test('stats count handles, starts and finishes; agents.md served with the request origin',async()=>{const s=mk();const t=await s.reg('st');const st=(await s.call('POST','/api/start',{game:'heaps',mode:'practice'},{token:t})).json();await s.call('POST','/api/move',{session:st.session,move:st.legalMoves[0]});const j=(await s.call('GET','/api/stats')).json();assert.equal(j.handles,1);assert.equal(j.gamesStarted,1);
+test('stats count handles, starts and finishes; agents.md served with the request origin',async()=>{const s=mk();const t=await s.reg('st');const st=(await s.call('POST','/api/start',{game:'heaps',mode:'practice'},{token:t})).json();await s.call('POST','/api/move',{session:st.session,move:(st.legalMoves||st.legalMovesSample)[0]});const j=(await s.call('GET','/api/stats')).json();assert.equal(j.handles,1);assert.equal(j.gamesStarted,1);
  const a=await s.call('GET','/api/agents');assert.match(a.text,/BASE = https:\/\/arcade\.test/);assert.ok(!a.text.includes('{{BASE}}'));
  for(const p of ['/agents.md','/llms.txt']){const r=await s.call('GET',p);assert.equal(r.status,200);assert.match(r.text,/BASE = https:\/\/arcade\.test/);}});
 
 test('server verification matches independent replay and practice board keeps the best run per handle',async()=>{const s=mk();const t=await s.reg('pp');for(let k=0;k<2;k++){const st=(await s.call('POST','/api/start',{game:'signal',mode:'practice',seed:42},{token:t})).json();let v=st;while(!v.done)v=(await s.call('POST','/api/move',{session:st.session,move:k?'0000':'1020'})).json();}
  const lb=(await s.call('GET','/api/leaderboard?game=signal&board=practice&seed=42')).json();assert.equal(lb.rows.length,1);assert.equal(lb.rows[0].score,1000);});
 
-test('redis command budget per full game stays small',async()=>{const s=mk();const t=await s.reg('bud');const before=s.redis.count();const st=(await s.call('POST','/api/start',{game:'signal',mode:'sealed'},{token:t})).json();let v=st,n=0;while(!v.done){v=(await s.call('POST','/api/move',{session:st.session,move:v.legalMoves[n++%256]})).json();}const used=s.redis.count()-before;assert.ok(used<=6*2+20,`commands used ${used}`);});
+test('redis command budget per full game stays small',async()=>{const s=mk();const t=await s.reg('bud');const before=s.redis.count();const st=(await s.call('POST','/api/start',{game:'signal',mode:'sealed'},{token:t})).json();let v=st,n=0;while(!v.done){v=(await s.call('POST','/api/move',{session:st.session,move:(v.legalMoves||v.legalMovesSample)[n++%8]})).json();}const used=s.redis.count()-before;assert.ok(used<=6*2+20,`commands used ${used}`);});
 
 test('policy board: empty until CI publishes, then served whole and per game',async()=>{const s=mk();
  assert.equal((await s.call('GET','/api/policies')).json().season,null);assert.deepEqual((await s.call('GET','/api/leaderboard?game=heaps&board=policies')).json().rows,[]);
  await s.redis.cmd('SET','sealed:policies',JSON.stringify({season:'s1',seeds:5,commitment:'ab',games:{heaps:[{agent:'opencode',mean:900,scores:[900]},{agent:'instinct-owner',mean:800,scores:[800]}]}}));
  assert.equal((await s.call('GET','/api/policies')).json().season,'s1');
  const b=(await s.call('GET','/api/leaderboard?game=heaps&board=policies')).json();assert.deepEqual(b.rows,[{rank:1,handle:'opencode',score:900},{rank:2,handle:'instinct-owner',score:800}]);assert.equal(b.season,'s1');});
+
+test('large legal move lists are summarized; legal=all returns them; illegal-move error is small',async()=>{const s=mk();const t=await s.reg('big');const st=(await s.call('POST','/api/start',{game:'signal',mode:'practice',seed:1},{token:t})).json();
+ assert.equal(st.legalMoves,null);assert.equal(st.legalMovesCount,256);assert.equal(st.legalMovesSample.length,8);assert.ok(st.moveRule);
+ const e=await s.call('POST','/api/move',{session:st.session,move:'zzzz'});assert.equal(e.status,400);assert.ok(e.text.length<1200,'error body small');assert.equal(e.json().legalMovesCount,256);
+ const all=(await s.call('POST','/api/move',{session:st.session,move:'zzzz',legal:'all'})).json();assert.equal(all.legalMoves.length,256);
+ const sm=(await s.call('POST','/api/start',{game:'heaps',mode:'practice'},{token:t})).json();assert.ok(Array.isArray(sm.legalMoves));});
+
+test('text mirror works as /api/text/<action> and as /api/text?action=<action> (vercel rewrite)',async()=>{const s=mk();
+ const a=await s.call('GET','/api/text/games');assert.equal(a.status,200);const b=await s.call('GET','/api/text',{}, {query:{action:'games'}});assert.equal(b.status,200);assert.equal(a.text,b.text);
+ const r=await s.call('GET','/api/text',{},{query:{action:'register',handle:'texty'}});assert.equal(r.status,200);assert.match(r.text,/PLAY KEY/);});
+
+test('vercel.json rewrites nested /api/text/<action> to the catch-all with ?action=',()=>{const v=JSON.parse(readFileSync(new URL('../vercel.json',import.meta.url),'utf8'));
+ const rw=v.rewrites.find((x:any)=>x.source==='/api/text/:action');assert.ok(rw);assert.equal(rw.destination,'/api/text?action=:action');});
+
+test('stats move after registration and finished games (single hash, both result shapes parsed)',async()=>{const s=mk();const t=await s.reg('sx');const st=(await s.call('POST','/api/start',{game:'heaps',mode:'practice'},{token:t})).json();let v=st;let n=0;while(!v.done&&n++<100){v=(await s.call('POST','/api/move',{session:st.session,move:(v.legalMoves||v.legalMovesSample)[0]})).json();}
+ const j=(await s.call('GET','/api/stats')).json();assert.equal(j.handles,1);assert.equal(j.gamesStarted,1);assert.equal(j.gamesFinished,1);assert.equal(j.finishedByGame.heaps,1);
+ const o=mk();o.deps.redis.cmd=async()=>({reg:'3','s:heaps':'2','f:heaps':'1'});const k=(await handle({method:'GET',path:'/api/stats',query:{},body:{},headers:{},ip:'1',host:'x',proto:'https'},o.deps)).body;assert.equal(JSON.parse(k).handles,3);});
+
+test('malformed JSON body gets a 400 with a message (glue marks it)',async()=>{const s=mk();const r=await s.call('POST','/api/move',{__badJson:true});assert.equal(r.status,400);assert.match(r.json().error,/not valid JSON/);});
+
+test('admin delete-handle: disabled without a long secret, guarded, removes handle from all boards',async()=>{
+ const off=mk();assert.equal((await off.call('POST','/api/admin',{action:'delete-handle',handle:'x'})).status,404);
+ const s=mk({ADMIN_SECRET:'a-long-secret-value-1234'});const t=await s.reg('victim');
+ const st=(await s.call('POST','/api/start',{game:'heaps',mode:'practice',seed:7},{token:t})).json();let v=st;let n=0;while(!v.done&&n++<100)v=(await s.call('POST','/api/move',{session:st.session,move:(v.legalMoves||v.legalMovesSample)[0]})).json();
+ const sealed=(await s.call('POST','/api/start',{game:'heaps',mode:'sealed'},{token:t})).json();let w=sealed;n=0;while(!w.done&&n++<100)w=(await s.call('POST','/api/move',{session:sealed.session,move:(w.legalMoves||w.legalMovesSample)[0]})).json();
+ const adm=(h:any,b:any)=>s.call('POST','/api/admin',b,{}).then(x=>x);
+ const bad=await handle({method:'POST',path:'/api/admin',query:{},body:{action:'delete-handle',handle:'victim'},headers:{'x-admin-secret':'wrong-wrong-wrong-wrong'},ip:'1',host:'x',proto:'https'},s.deps);assert.equal(bad.status,401);
+ const ok=await handle({method:'POST',path:'/api/admin',query:{},body:{action:'delete-handle',handle:'victim'},headers:{'x-admin-secret':'a-long-secret-value-1234'},ip:'1',host:'x',proto:'https'},s.deps);assert.equal(ok.status,200);
+ const keys=[...s.redis.kv.keys()];assert.ok(!keys.some(k=>k.startsWith('h:victim')||k.startsWith('n:')&&k.includes(':victim:')));
+ for(const [k,m] of s.redis.kv)if(k.startsWith('lb')&&m instanceof Map)assert.ok(!m.has('victim'),k);
+ assert.equal((await s.call('POST','/api/start',{game:'heaps',mode:'sealed'},{token:t})).status,401);
+ assert.equal((await s.call('POST','/api/register',{handle:'victim'})).status,200);void adm;});
+
+test('no sign-up step: first start with a handle claims it and returns a play key inline; key reuses it',async()=>{const s=mk();
+ const a=(await s.call('POST','/api/start',{game:'heaps',mode:'sealed',handle:'Walker'},{ip:'2.2.2.2'}));assert.equal(a.status,200);const j=a.json();assert.ok(j.playKey.length>=30);assert.equal(j.handle,'Walker');
+ assert.equal((await s.call('POST','/api/start',{game:'heaps',mode:'sealed',handle:'walker'},{ip:'3.3.3.3'})).status,409);
+ const b=await s.call('POST','/api/start',{game:'heaps',mode:'sealed',key:j.playKey});assert.equal(b.status,200);assert.equal(b.json().playKey,undefined);
+ assert.equal((await s.call('GET','/api/me',{}, {token:j.playKey})).status,200);
+ const st=await s.call('GET','/api/stats');assert.equal(st.json().handles,1);});
+
+test('anonymous practice needs no handle or key, is capped per address, never lists on a board; sealed needs a handle',async()=>{const s=mk({MAX_PRACTICE_PER_HANDLE_DAY:'3'});
+ const a=await s.call('POST','/api/start',{game:'heaps'},{ip:'9.9.9.9'});assert.equal(a.status,200);const j=a.json();assert.equal(j.mode,'practice');
+ let v=j,n=0;while(!v.done&&n++<100)v=(await s.call('POST','/api/move',{session:j.session,move:(v.legalMoves||v.legalMovesSample)[0]})).json();assert.ok(v.done);
+ assert.equal((await s.call('GET','/api/leaderboard',{},{query:{game:'heaps',board:'practice',seed:'42'}})).json().rows.length,0);
+ assert.equal((await s.call('POST','/api/start',{game:'heaps',mode:'sealed'},{ip:'9.9.9.9'})).status,400);
+ await s.call('POST','/api/start',{game:'heaps'},{ip:'9.9.9.9'});await s.call('POST','/api/start',{game:'heaps'},{ip:'9.9.9.9'});
+ assert.equal((await s.call('POST','/api/start',{game:'heaps'},{ip:'9.9.9.9'})).status,429);});
+
+test('agents.md and text mirror avoid account/register wording; text start with handle shows the play key',async()=>{const s=mk();
+ const a=(await s.call('GET','/api/agents')).text;assert.ok(!/register|account|sign.?up (is|required)/i.test(a.replace(/No sign-up, no email\./,'')),'agents.md wording');
+ const g=(await s.call('GET','/api/text/games')).text;assert.ok(!/regist|account/i.test(g));
+ const t=(await s.call('GET','/api/text/start',{},{query:{handle:'texter',game:'heaps',mode:'sealed'},ip:'4.4.4.4'}));assert.equal(t.status,200);assert.match(t.text,/PLAY KEY/);});
