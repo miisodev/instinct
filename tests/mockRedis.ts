@@ -22,6 +22,8 @@ export function mockRedis(){
    case 'EXPIRE':exp.set(s[0],Number(s[1]));return 1;
    case 'HSET':{const m=h(s[0]);for(let i=1;i<s.length;i+=2)m.set(s[i],s[i+1]);return 1;}
    case 'HGET':return (kv.get(s[0]) as Map<string,string>|undefined)?.get(s[1])??null;
+   case 'HLEN':return (kv.get(s[0]) as Map<string,string>|undefined)?.size??0;
+   case 'HDEL':{const m=kv.get(s[0]) as Map<string,string>|undefined;let n=0;for(const f of s.slice(1))if(m?.delete(f))n++;return n;}
    case 'HVALS':return [...((kv.get(s[0]) as Map<string,string>|undefined)?.values()??[])];
    case 'HGETALL':return [...((kv.get(s[0]) as Map<string,string>|undefined)?.entries()??[])].flat();
    case 'HINCRBY':{const m=h(s[0]);const n=Number(m.get(s[1])??0)+Number(s[2]);m.set(s[1],String(n));return n;}

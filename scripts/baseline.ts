@@ -43,5 +43,8 @@ const pol:Record<string,(g:Game,s:State)=>string>={
 };
 const seeds=process.argv.slice(2).map(a=>a==='daily'?dailySeed():Number(a));if(!seeds.length)seeds.push(42);
 mkdirSync('results',{recursive:true});
-for(const g of games)for(const seed of seeds){let s=g.init(seed);const moves:string[]=[];while(!s.done){const m=pol[g.id](g,s);s=advance(g,s,m);moves.push(m);}
+// @ts-expect-error untyped reference policy module (plain .mjs, observations in, move out)
+const ref=(await import('../policies/instinct-baseline.mjs')).default as (o:unknown)=>string;
+const move=(g:Game,s:State)=>pol[g.id]?pol[g.id](g,s):ref({game:g.id,turn:s.turns,description:g.describe(s),observation:observe(g,s),legalMoves:g.legalMoves(s)});
+for(const g of games)for(const seed of seeds){let s=g.init(seed);const moves:string[]=[];while(!s.done){const m=move(g,s);s=advance(g,s,m);moves.push(m);}
  const replay={schema:1 as const,game:g.id,version:g.version,seed,agent:H,moves};const v=validateReplay(replay,games);writeFileSync(`results/${g.id}-${seed}-${H}.json`,JSON.stringify(replay)+'\n');console.log(`${g.id} seed ${seed}: ${v.score} pts in ${v.turns} turns`);}

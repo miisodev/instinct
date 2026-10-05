@@ -27,6 +27,22 @@ function mineMove(board,L){const N=8,cell=(r,c)=>board[r][c];const nb=(r,c)=>{co
  let bm=L[0],bp=2;for(const m of L){const [r,c]=m.split(',').map(Number);if(M.has(key(r,c)))continue;let p=0,k=0;for(const [a,b] of nb(r,c)){const v=cell(a,b);if(v==='#'||v==='.')continue;const unk=nb(a,b).filter(([x,y])=>cell(x,y)==='#'&&!M.has(key(x,y))).length;const mm=nb(a,b).filter(([x,y])=>M.has(key(x,y))).length;if(unk){p=Math.max(p,(+v-mm)/unk);k++;}}
   const risk=k?p:dens;if(risk<bp){bp=risk;bm=m;}}
  return bm;}
+// prospector: UCB1 over the six claims, using only the struck/dug tallies.
+function prospectMove(ob,L){const n=ob.pulls,g=ob.gold,t=n.reduce((a,b)=>a+b,0);const fresh=n.findIndex(x=>x===0);if(fresh>=0)return String(fresh);
+ let bi=0,bv=-1;for(let i=0;i<n.length;i++){const v=g[i]/n[i]+Math.sqrt(0.6*Math.log(t+1)/n[i]);if(v>bv){bv=v;bi=i;}}return String(bi);}
+// nextterm: try simple rule families in order, keep the first that explains every known term.
+function nextTermMove(ob){const x=ob.terms,n=x.length,ds=x.slice(1).map((v,i)=>v-x[i]);const ok=v=>Number.isInteger(v)&&v>=0&&v<=999;const fits=f=>{let checked=0;for(let i=2;i<n;i++){const v=f(x.slice(0,i));if(Number.isNaN(v))continue;checked++;if(v!==x[i])return false;}return checked>0;};
+ const dsum=v=>String(v).split('').reduce((a,c)=>a+Number(c),0);
+ const rules=[
+  a=>a[a.length-1]+(a[a.length-1]-a[a.length-2]),
+  a=>{if(a.length<3)return NaN;const k=a.length;return 3*a[k-1]-3*a[k-2]+a[k-3];},
+  a=>a[a.length-1]+a[a.length-2],
+  a=>{const k=a.length;if(k<4)return NaN;return a[k-2]+(a[k-2]-a[k-4]);},
+  a=>a[a.length-1]+dsum(a[a.length-1]),
+  ...[2,3].map(p=>a=>{const k=a.length;if(k<=p)return NaN;return a[k-1]+(a[k-p]-a[k-p-1]);}),
+  ...[1,2,3,4].map(c=>a=>(a[a.length-1]*2+c)%1000)];
+ for(const f of rules)if(fits(f)){const v=f(x);if(ok(v))return String(v);}
+ const v=x[n-1]+(ds[ds.length-1]??0);return String(Math.min(999,Math.max(0,v)));}
 export default function(o){const ob=o.observation,L=o.legalMoves;
  switch(o.game){
  case 'signal':return codes.find(c=>ob.history.every(x=>{const [e,n]=fb(c,x.guess);return e===x.exact&&n===x.near;}));
@@ -43,4 +59,6 @@ export default function(o){const ob=o.observation,L=o.legalMoves;
  case 'courier':{const P=ob.points;let cur=ob.at<0?ob.depot:P[ob.at];let b=null,bd=1e9;for(const m of L){const p=P[+m];const d=Math.hypot(cur.x-p.x,cur.y-p.y);if(d<bd){bd=d;b=m;}}return b;}
  case 'lights':return lightsMove(ob.lights,L);
  case 'minefield':return mineMove(ob.board,L);
+ case 'prospector':return prospectMove(ob,L);
+ case 'nextterm':return nextTermMove(ob);
  default:return L[0];}}

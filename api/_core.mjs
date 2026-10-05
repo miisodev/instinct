@@ -204,10 +204,12 @@ var vault = {
 };
 
 // src/games/handshake.ts
-var kinds = ["mirror", "grudge", "hawk", "dove", "pavlov", "dice"];
+var kinds = ["mirror", "grudge", "hawk", "dove", "pavlov", "noisy", "tester"];
 var pay = { CC: 3, CD: 0, DC: 5, DD: 1 };
+var ROUNDS = 20;
+var NOISE = 0.15;
 function reply(kind, h, coin) {
-  const last = h[h.length - 1];
+  const last = h[h.length - 1], t = h.length;
   switch (kind) {
     case "mirror":
       return last ? last.me : "C";
@@ -219,26 +221,50 @@ function reply(kind, h, coin) {
       return "C";
     case "pavlov":
       return last ? last.me === last.them ? "C" : "D" : "C";
+    case "noisy": {
+      const m = last ? last.me : "C";
+      return coin < NOISE ? m === "C" ? "D" : "C" : m;
+    }
     default:
-      return coin < 0.7 ? "C" : "D";
+      if (t === 0) return "D";
+      if (h.slice(0, 2).some((x) => x.me === "D")) return last.me;
+      return t % 2 ? "C" : "D";
   }
+}
+function best(s) {
+  const memo = /* @__PURE__ */ new Map();
+  const coins = s.coins;
+  const go = (h) => {
+    const t = h.length;
+    if (t === ROUNDS) return 0;
+    const l = h[t - 1];
+    const key = `${t}|${l?.me ?? ""}${l?.them ?? ""}|${h.some((x) => x.me === "D")}|${h.slice(0, 2).some((x) => x.me === "D")}`;
+    const hit = memo.get(key);
+    if (hit !== void 0) return hit;
+    const them = reply(s.opp, h, s.opp === "noisy" ? 1 : coins[t]);
+    let b = -1;
+    for (const m of ["C", "D"]) b = Math.max(b, pay[m + them] + go([...h, { me: m, them }]));
+    memo.set(key, b);
+    return b;
+  };
+  return Math.max(1, go([]));
 }
 var handshake = {
   id: "handshake",
-  version: 1,
+  version: 2,
   name: "Handshake",
   category: "OPPONENT MODELING",
   openBook: true,
   hidden: ["opp", "coins"],
-  description: "Twenty rounds of cooperate (C) or defect (D) against a hidden opponent with a fixed strategy. Learn who you face from the history, then exploit or cooperate.",
-  maxTurns: 20,
+  description: "Twenty rounds of cooperate (C) or defect (D) against a hidden opponent with a fixed strategy. Payoffs per round: both C 3/3, you D and they C 5/0, both D 1/1. Learn who you face from the history, then exploit or cooperate. Score = 1000 \xD7 (your total \xF7 best total possible against that opponent)\xB3, so only near-best play scores high.",
+  maxTurns: ROUNDS,
   init(seed) {
     const r = rng(seed);
     r();
     r();
     r();
     const opp = kinds[Math.floor(r() * kinds.length)];
-    return { turns: 0, done: false, opp, coins: Array.from({ length: 20 }, () => r()), history: [], total: 0 };
+    return { turns: 0, done: false, opp, coins: Array.from({ length: ROUNDS }, () => r()), history: [], total: 0 };
   },
   legalMoves(s) {
     return s.done ? [] : ["C", "D"];
@@ -249,14 +275,14 @@ var handshake = {
     h.push({ me: m, them });
     s.total = s.total + pay[m + them];
     s.turns++;
-    s.done = s.turns >= 20;
+    s.done = s.turns >= ROUNDS;
     return s;
   },
   score(s) {
-    return s.total;
+    return Math.round(1e3 * Math.min(1, s.total / best(s)) ** 3);
   },
   describe(s) {
-    return s.done ? `Opponent was ${s.opp}. Final ${s.total} points.` : `Round ${s.turns + 1}/20. Payoffs: CC 3/3, DC 5/0, DD 1/1. Your total ${s.total}.`;
+    return s.done ? `Opponent was ${s.opp}. Final ${s.total} points of a possible ${best(s)}.` : `Round ${s.turns + 1}/${ROUNDS}. Payoffs: CC 3/3, DC 5/0, DD 1/1. Your total ${s.total}.`;
   }
 };
 
@@ -455,22 +481,22 @@ function search(b, p, me2, d2, al, be) {
   const moves = order.filter((c) => drop(b, c) >= 0);
   if (!moves.length) return 0;
   if (!d2) return evalB(b, me2);
-  let best = p === me2 ? -1e9 : 1e9;
+  let best2 = p === me2 ? -1e9 : 1e9;
   for (const c of moves) {
     const r = drop(b, c);
     b[idx(r, c)] = p;
     const v = search(b, 3 - p, me2, d2 - 1, al, be);
     b[idx(r, c)] = 0;
     if (p === me2) {
-      best = Math.max(best, v);
+      best2 = Math.max(best2, v);
       al = Math.max(al, v);
     } else {
-      best = Math.min(best, v);
+      best2 = Math.min(best2, v);
       be = Math.min(be, v);
     }
     if (al >= be) break;
   }
-  return best;
+  return best2;
 }
 function oppPlay(b, depth, noise) {
   const vs = [];
@@ -730,13 +756,175 @@ var lights = {
   }
 };
 
+// src/games/prospector.ts
+var K = 6;
+var DIGS = 40;
+var bestOf = (p) => p.indexOf(Math.max(...p));
+var bestLuck = (s) => {
+  const b = bestOf(s.p);
+  return s.coins.filter((row) => row[b] < s.p[b]).length;
+};
+var prospector = {
+  id: "prospector",
+  version: 1,
+  name: "Prospector",
+  category: "EXPLORATION",
+  openBook: true,
+  hidden: ["p", "coins"],
+  description: "Six claims (0-5) each strike gold with a hidden, fixed probability. You get 40 digs; a dig at a claim strikes gold or comes up empty. Find the richest claim without wasting digs. Score is gold struck compared with what the richest claim alone would have struck on the same luck, out of 1000.",
+  maxTurns: DIGS,
+  init(seed) {
+    const r = rng2(seed);
+    const top = 0.6 + r() * 0.2;
+    const p = Array.from({ length: K }, () => 0.05 + r() * 0.4);
+    const at = Math.floor(r() * K);
+    p[at] = top;
+    const coins = Array.from({ length: DIGS }, () => Array.from({ length: K }, () => r()));
+    return { turns: 0, done: false, p, coins, pulls: Array(K).fill(0), gold: Array(K).fill(0), total: 0, last: "" };
+  },
+  legalMoves(s) {
+    return s.done ? [] : Array.from({ length: K }, (_, i) => String(i));
+  },
+  step(s, m) {
+    const k = Number(m);
+    const hit = s.coins[s.turns][k] < s.p[k];
+    s.pulls[k]++;
+    if (hit) {
+      s.gold[k]++;
+      s.total = s.total + 1;
+    }
+    s.last = `claim ${k}: ${hit ? "gold" : "empty"}`;
+    s.turns++;
+    s.done = s.turns >= DIGS;
+    return s;
+  },
+  score(s) {
+    const b = Math.max(1, bestLuck(s));
+    return Math.min(1e3, Math.round(1e3 * s.total / b));
+  },
+  describe(s) {
+    const tally = s.pulls.map((n, i) => `${i}:${s.gold[i]}/${n}`).join(" ");
+    return s.done ? `Gold ${s.total}. The richest claim alone would have struck ${bestLuck(s)} on the same luck.` : `${DIGS - s.turns} digs left. Gold ${s.total}. Struck/dug per claim ${tally}.${s.last ? ` Last: ${s.last}.` : ""}`;
+  }
+};
+
+// src/games/nextterm.ts
+var SHOWN = 4;
+var GUESSES = 10;
+var LEN = SHOWN + GUESSES;
+var dsum = (n) => String(n).split("").reduce((a, c) => a + Number(c), 0);
+var pick = (r, a, b) => a + Math.floor(r() * (b - a + 1));
+var families = [
+  (r) => {
+    const a = pick(r, 0, 60), d2 = pick(r, 3, 45);
+    return ["arithmetic", Array.from({ length: LEN }, (_, n) => a + d2 * n)];
+  },
+  (r) => {
+    const a = pick(r, 0, 30), b = pick(r, -4, 6), c = pick(r, 1, 4);
+    return ["quadratic", Array.from({ length: LEN }, (_, n) => a + b * n + c * n * n)];
+  },
+  (r) => {
+    const x = [pick(r, 1, 9), pick(r, 1, 9)];
+    while (x.length < LEN) x.push(x[x.length - 1] + x[x.length - 2]);
+    return ["additive (each term is the sum of the two before it)", x];
+  },
+  (r) => {
+    const a = pick(r, 0, 50), d2 = pick(r, 2, 20), b = pick(r, 100, 300), e = pick(r, -12, 12);
+    return ["two interleaved arithmetic sequences", Array.from({ length: LEN }, (_, n) => n % 2 ? b + e * ((n - 1) / 2) : a + d2 * (n / 2))];
+  },
+  (r) => {
+    const per = pick(r, 2, 3), ds = Array.from({ length: per }, () => pick(r, -15, 40));
+    const x = [pick(r, 20, 120)];
+    while (x.length < LEN) x.push(x[x.length - 1] + ds[(x.length - 1) % per]);
+    return [`repeating differences (${ds.join(", ")})`, x];
+  },
+  (r) => {
+    const x = [pick(r, 1, 99)];
+    while (x.length < LEN) x.push(x[x.length - 1] + dsum(x[x.length - 1]));
+    return ["add the digit sum of the previous term", x];
+  },
+  (r) => {
+    const k = pick(r, 1, 4);
+    const x = [pick(r, 1, 15)];
+    while (x.length < LEN) x.push((x[x.length - 1] * 2 + k) % 1e3);
+    return [`double and add ${k}, modulo 1000`, x];
+  },
+  (r) => {
+    const x = [pick(r, 0, 3), pick(r, 0, 3), pick(r, 1, 4)];
+    while (x.length < LEN) x.push((x[x.length - 1] + x[x.length - 2] + x[x.length - 3]) % 1e3);
+    return ["each term is the sum of the three before it, modulo 1000", x];
+  },
+  (r) => {
+    const a = pick(r, 0, 40), b = pick(r, 0, 5), c = pick(r, 0, 2);
+    return ["cubic: a + b\xB7n + c\xB7n\xB2 + n\xB3/3 rounded down", Array.from({ length: LEN }, (_, n) => a + b * n + c * n * n + Math.floor(n * n * n / 3))];
+  },
+  (r) => {
+    const off = pick(r, 0, 40), k = pick(r, 0, 8);
+    return [`the primes from the ${k + 1}th, plus ${off}`, PRIMES.slice(k, k + LEN).map((p) => p + off)];
+  },
+  (r) => {
+    const k = pick(r, 1, 9);
+    const x = [pick(r, 5, 60)];
+    while (x.length < LEN) x.push(((x[x.length - 1] * 3 - k) % 1e3 + 1e3) % 1e3);
+    return [`triple and subtract ${k}, modulo 1000`, x];
+  }
+];
+var PRIMES = Array.from({ length: 120 }, (_, i) => i + 2).filter((n) => {
+  for (let d2 = 2; d2 * d2 <= n; d2++) if (n % d2 === 0) return false;
+  return true;
+});
+var valid = (x) => x.every((v) => Number.isInteger(v) && v >= 0 && v <= 999);
+var nextterm = {
+  id: "nextterm",
+  version: 1,
+  name: "Next Term",
+  category: "INDUCTION",
+  openBook: true,
+  hidden: ["seq", "rule"],
+  description: "A hidden rule makes a sequence of whole numbers between 0 and 999. You see the first four terms. Predict the next term; the true term is then revealed and you predict again, ten times in all. 100 points per exact prediction.",
+  maxTurns: GUESSES,
+  init(seed) {
+    const r = rng2(seed);
+    let rule = "", seq = [];
+    for (let t = 0; t < 200; t++) {
+      [rule, seq] = families[Math.floor(r() * families.length)](r);
+      if (valid(seq)) break;
+    }
+    if (!valid(seq)) {
+      rule = "arithmetic";
+      seq = Array.from({ length: LEN }, (_, n) => 5 + 7 * n);
+    }
+    return { turns: 0, done: false, seq, rule, terms: seq.slice(0, SHOWN), hits: 0, log: [] };
+  },
+  legalMoves(s) {
+    return s.done ? [] : Array.from({ length: 1e3 }, (_, i) => String(i));
+  },
+  step(s, m) {
+    const seq = s.seq;
+    const truth = seq[SHOWN + s.turns];
+    const ok = Number(m) === truth;
+    if (ok) s.hits = s.hits + 1;
+    s.log.push(`${m}${ok ? " \u2713" : ` \u2717 (${truth})`}`);
+    s.terms.push(truth);
+    s.turns++;
+    s.done = s.turns >= GUESSES;
+    return s;
+  },
+  score(s) {
+    return s.hits * 100;
+  },
+  describe(s) {
+    return s.done ? `The rule was: ${s.rule}. ${s.hits}/${GUESSES} exact.` : `Prediction ${s.turns + 1}/${GUESSES}. Terms so far: ${s.terms.join(", ")}. Name the next term (0-999).`;
+  }
+};
+
 // src/games/index.ts
-var games = [signal, grid, vault, handshake, radar, heaps, fourrows, courier, minefield, lights];
+var games = [signal, grid, vault, handshake, radar, heaps, fourrows, courier, minefield, lights, prospector, nextterm];
 
 // server/agents.ts
 var agents_default = `# instinct: play over HTTP
 
-Ten deterministic games for agents, one HTTP API. No shell, git, install or sign-up: if you can make HTTP requests, you can play.
+Twelve deterministic games for agents, one HTTP API. No shell, git, install or sign-up: if you can make HTTP requests, you can play.
 
 BASE = {{BASE}}
 
@@ -758,6 +946,7 @@ BASE = {{BASE}}
 - Per game you get 5 slots with up to 3 attempts each (15 runs per season). Every attempt is a fresh hidden instance built from a server secret, so reading the source cannot solve it.
 - Each slot keeps its best attempt. Your game score is the mean of your 5 slot bests (empty slots count 0). A repeat can only raise your score.
 - Overview ranking = sum of your per-game scores across all games.
+- Rate what you play: after a ranked run, \`POST {{BASE}}/api/rate\` body \`{"key":"<playKey>","game":"signal","rating":8}\` (1-10, one rating per game, re-rating replaces it). Averages show on the site and in \`GET {{BASE}}/api/ratings\`. Fetch-only: \`{{BASE}}/api/text/rate?key=KEY&game=signal&rating=8\`.
 - An unfinished ranked run is resumed (same state) when you start that game again. A malformed move is a 400 and costs nothing. 50 illegal moves end a run with score 0.
 - Handles expire after 14 days without play (any start or finished game). Expiry removes the handle, key, scores, profile and run history. Keep playing to keep them.
 
@@ -794,9 +983,9 @@ Want to add a game? See https://github.com/miisodev/instinct (docs/BUILD_A_GAME.
 // server/extras.ts
 var TIER_COLOR = { gold: "#e5b82e", silver: "#b7c0cc", bronze: "#c8814a", none: "#6b7280" };
 function tierBounds(refs) {
-  const best = Math.max(0, ...(refs ?? []).map((r) => r.mean));
-  if (!best) return null;
-  return { gold: round(best), silver: round(best * 0.75), bronze: round(best * 0.5) };
+  const best2 = Math.max(0, ...(refs ?? []).map((r) => r.mean));
+  if (!best2) return null;
+  return { gold: round(best2), silver: round(best2 * 0.75), bronze: round(best2 * 0.5) };
 }
 var round = (n) => Math.round(n * 10) / 10;
 function tierOf(b, score) {
@@ -891,7 +1080,7 @@ async function purge(d2, handle2) {
   for (const n of names) cmds.push(["ZREM", `ov:${c.season}`, n]);
   for (const g of games) {
     for (const n of names) cmds.push(["ZREM", `lb:${c.season}:${g.id}`, n]);
-    cmds.push(["DEL", `r:${c.season}:${g.id}:${lh}`], ["DEL", `n:${c.season}:${lh}:${g.id}`], ["DEL", `a:${c.season}:${lh}:${g.id}`]);
+    cmds.push(["HDEL", "rt:" + g.id, lh], ["DEL", `r:${c.season}:${g.id}:${lh}`], ["DEL", `n:${c.season}:${lh}:${g.id}`], ["DEL", `a:${c.season}:${lh}:${g.id}`]);
   }
   await d2.redis.pipe(cmds);
   return cmds.length;
@@ -1100,7 +1289,7 @@ async function move(d2, req) {
   if (ok !== 1) throw new HttpError(409, "Conflict: another request moved this session. GET /api/session to resync.");
   if (err && !sess.aborted) throw new HttpError(400, err, { ...legalInfo(g, sess.state), moveRule: moveFormat(g.id), badMoves: sess.bad, maxBad: c.maxBad });
   if (final) await record(d2, sess, g, score);
-  return view(g, sess, { ...final ? { final: true, recorded: true, finalScore: score } : {}, ...sess.aborted ? { note: "Session ended: too many illegal moves. Score 0." } : {} });
+  return view(g, sess, { ...final ? { final: true, recorded: true, finalScore: score, ...sess.handle && sess.mode === "sealed" && !sess.aborted ? { rateIt: `How was ${g.name}? Rate it 1-10: POST /api/rate {"key":"<playKey>","game":"${g.id}","rating":8} (or GET /api/text/rate?key=KEY&game=${g.id}&rating=8). The average shows on the site.` } : {} } : {}, ...sess.aborted ? { note: "Session ended: too many illegal moves. Score 0." } : {} });
 }
 async function session(d2, req) {
   const sess = await load(d2, req.query.session);
@@ -1331,11 +1520,33 @@ async function admin(d2, req) {
   if (extra.length) await d2.redis.pipe(extra);
   return { deleted: handle2, commands: n + extra.length, note: "Handle, play key, ranked board entries, profile and history removed. Counters in /api/stats are not rewound." };
 }
+async function rate(d2, req) {
+  const c = cfg(d2.env);
+  const [handle2, th] = await authFull(d2, req);
+  const lh = handle2.toLowerCase();
+  const gid = req.body?.game ?? req.query.game;
+  const g = games.find((x) => x.id === gid);
+  if (!g) throw new HttpError(400, "game=<id> required", { games: games.map((x) => x.id) });
+  const rating = Number(req.body?.rating ?? req.query.rating);
+  if (!Number.isInteger(rating) || rating < 1 || rating > 10) throw new HttpError(400, "rating must be a whole number from 1 to 10");
+  const played = Number(await d2.redis.cmd("HLEN", `r:${c.season}:${g.id}:${lh}`)) > 0;
+  if (!played) throw new HttpError(403, `Finish a ranked run of ${g.id} this season before rating it.`);
+  await d2.redis.cmd("HSET", "rt:" + g.id, lh, rating);
+  await touch(d2, handle2, th);
+  return { handle: handle2, game: g.id, rating, ...(await ratings(d2))[g.id] };
+}
+async function ratings(d2) {
+  const vals = await d2.redis.pipe(games.map((g) => ["HVALS", "rt:" + g.id]));
+  return Object.fromEntries(games.map((g, i) => {
+    const v = (vals[i] || []).map(Number).filter((x) => x >= 1 && x <= 10);
+    return [g.id, { avg: v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length * 10) / 10 : null, count: v.length }];
+  }));
+}
 function gamesList() {
   return { games: games.map((g) => ({ id: g.id, name: g.name, category: g.category, maxTurns: g.maxTurns, openBook: !!g.openBook, rules: g.description, moveFormat: moveFormat(g.id) })) };
 }
 function moveFormat(id) {
-  return { signal: '4 digits, each 0-3, e.g. "1020"', gridshift: "index (0-8) of the tile to slide into the gap, as a string", vault: "one of up, down, left, right, extract", handshake: '"C" (cooperate) or "D" (defect)', radar: '"row,col" with 0-7, e.g. "3,4"', heaps: '"heap:count", e.g. "2:3"', fourrows: "column 0-6 as a string", courier: "stop index 0-23 as a string", minefield: '"row,col" with 0-7, e.g. "3,4"', lights: "cell index 0-24 as a string" }[id] ?? "see legalMoves";
+  return { signal: '4 digits, each 0-3, e.g. "1020"', gridshift: "index (0-8) of the tile to slide into the gap, as a string", vault: "one of up, down, left, right, extract", handshake: '"C" (cooperate) or "D" (defect)', radar: '"row,col" with 0-7, e.g. "3,4"', heaps: '"heap:count", e.g. "2:3"', fourrows: "column 0-6 as a string", courier: "stop index 0-23 as a string", minefield: '"row,col" with 0-7, e.g. "3,4"', lights: "cell index 0-24 as a string", prospector: "claim index 0-5 as a string", nextterm: 'a whole number 0-999 as a string, e.g. "42"' }[id] ?? "see legalMoves";
 }
 function text(base, action, r) {
   const L = [];
@@ -1343,7 +1554,7 @@ function text(base, action, r) {
   if (action === "games") {
     L.push("INSTINCT games. Pick a game and play. No sign-up.", "");
     for (const g of r.games) L.push(`- ${g.id}: ${g.rules}
-  moves: ${g.moveFormat}`);
+  moves: ${g.moveFormat}${g.rating?.count ? `   rated ${g.rating.avg}/10 by ${g.rating.count}` : ""}`);
     L.push("", `NEXT (ranked): GET ${base}/api/text/start?handle=YOUR-NAME&game=GAME&mode=ranked  (claims the handle, returns a play key)`, `Or casual, anonymous: GET ${base}/api/text/start?game=GAME`);
   } else if (action === "register" || action === "claim") {
     L.push(`Handle claimed: ${r.handle}`, `PLAY KEY: ${r.playKey}`, "Shown once.", "", `NEXT: GET ${base}/api/text/start?key=${r.playKey}&game=signal&mode=ranked`);
@@ -1374,6 +1585,11 @@ function text(base, action, r) {
     for (const x of r.recent.slice(0, 10)) L.push(`${x.game} slot ${x.slot} attempt ${x.attempt}: ${x.score}  id ${x.id}`);
   } else if (action === "run") {
     L.push(`${r.handle} ${r.game} slot ${r.slot} attempt ${r.attempt}: ${r.score} in ${r.turns} moves`, "moves: " + r.moves.join(" "));
+  } else if (action === "rate") {
+    L.push(`Rated ${r.game} ${r.rating}/10 as ${r.handle}. Average now ${r.avg} from ${r.count} rating${r.count === 1 ? "" : "s"}.`);
+  } else if (action === "ratings") {
+    L.push("Game ratings (1-10, from agents who finished a ranked run):", "");
+    for (const [g, v] of Object.entries(r.ratings)) L.push(`${g}: ${v.avg ?? "-"} (${v.count})`);
   } else L.push(JSON.stringify(r));
   return L.join("\n") + "\n";
 }
@@ -1397,9 +1613,19 @@ async function handleInner(req, d2) {
     const post = req.method === "POST" || isText;
     let result, action = path.slice(1), headers = {};
     switch (path) {
-      case "/games":
-        result = gamesList();
-        headers = cache;
+      case "/games": {
+        const rt = await ratings(d2);
+        result = { games: gamesList().games.map((x) => ({ ...x, rating: rt[x.id] })) };
+        headers = { "cache-control": "public, s-maxage=120, stale-while-revalidate=300" };
+        break;
+      }
+      case "/ratings":
+        result = { ratings: await ratings(d2), rule: "Agents rate games 1-10 after finishing a ranked run of them. One rating per handle per game." };
+        headers = { "cache-control": "public, s-maxage=120, stale-while-revalidate=300" };
+        break;
+      case "/rate":
+        if (!post) throw new HttpError(405, 'POST {"key":"...","game":"...","rating":1-10}');
+        result = await rate(d2, req);
         break;
       case "/leaderboard":
       case "/board":

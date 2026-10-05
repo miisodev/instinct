@@ -169,7 +169,7 @@ test('handles expire after 14 idle days: removed from boards, profile and key; a
 test('storage limit errors from Redis become a clear 503; openapi and robots ship; llms.txt is the current brief',async()=>{const s=mk();s.deps.redis.cmd=async()=>{throw new Error('ERR max daily request limit exceeded');};
  const r=await handle({method:'GET',path:'/api/stats',query:{},body:{},headers:{},ip:'1',host:'x',proto:'https'},s.deps);assert.equal(r.status,503);assert.match(r.body,/capacity/);
  const spec=JSON.parse(readFileSync(new URL('../public/openapi.json',import.meta.url),'utf8'));assert.ok(spec.paths['/api/start']&&spec.paths['/api/profile']);assert.match(readFileSync(new URL('../public/robots.txt',import.meta.url),'utf8'),/Allow: \//);
- const l=(await mk().call('GET','/llms.txt')).text;assert.match(l,/Ten deterministic games/);assert.ok(!/sealed|practice mode/i.test(l),'no stale mode names');});
+ const l=(await mk().call('GET','/llms.txt')).text;assert.match(l,/Twelve deterministic games/);assert.ok(!/sealed|practice mode/i.test(l),'no stale mode names');});
 
 test('v0.5.1: feed, daily streak, badge, card, share page, replay frames, tiers',async()=>{const s=mk();const tok=await s.reg('streaker');
  const fin=async(game:string)=>{const st=(await s.call('POST','/api/start',{game,mode:'sealed'},{token:tok})).json();let v=st,n=0;while(!v.done&&n++<200)v=(await s.call('POST','/api/move',{session:st.session,move:(v.legalMoves||v.legalMovesSample)[0]})).json();return st.session as string;};
@@ -199,3 +199,18 @@ test('v0.5.2: a refused ranked start does not consume a run or monthly capacity'
 test('v0.5.2: fourrows hides opponent depth and noise stream in ranked observations; replay stays deterministic',async()=>{const s=mk();const t=await s.reg('fr');
  const st=(await s.call('POST','/api/start',{game:'fourrows',mode:'sealed'},{token:t})).json();const o=JSON.stringify(st.observation);assert.equal(o.includes('depth'),false);assert.equal(o.includes('"ns"'),false);
  let v=st,n=0;while(!v.done&&n++<30)v=(await s.call('POST','/api/move',{session:st.session,move:(v.legalMoves||v.legalMovesSample)[0]})).json();assert.equal(v.recorded,true);});
+
+test('v0.6.0: ratings need a finished ranked run, one per handle per game, averaged on /games and /ratings, removed on expiry',async()=>{const s=mk();
+ const st=(await s.call('POST','/api/start',{game:'lights',mode:'ranked',handle:'rater'})).json();const key=st.playKey;
+ assert.equal((await s.call('POST','/api/rate',{key,game:'lights',rating:9})).status,403);
+ let v=st,n=0;while(!v.done&&n++<100)v=(await s.call('POST','/api/move',{session:st.session,move:v.legalMoves[0]})).json();assert.match(v.rateIt,/api\/rate/);
+ for(const bad of [0,11,7.5,'x'])assert.equal((await s.call('POST','/api/rate',{key,game:'lights',rating:bad})).status,400);
+ assert.equal((await s.call('POST','/api/rate',{key,game:'nope',rating:5})).status,400);assert.equal((await s.call('POST','/api/rate',{game:'lights',rating:5})).status,401);
+ assert.equal((await s.call('POST','/api/rate',{key,game:'lights',rating:9})).json().avg,9);
+ const r2=(await s.call('POST','/api/rate',{key,game:'lights',rating:7})).json();assert.equal(r2.avg,7);assert.equal(r2.count,1);
+ const st2=(await s.call('POST','/api/start',{game:'lights',mode:'ranked',handle:'rater2'})).json();let w=st2;n=0;while(!w.done&&n++<100)w=(await s.call('POST','/api/move',{session:st2.session,move:w.legalMoves[0]})).json();
+ assert.equal((await s.call('GET','/api/text/rate',{},{query:{key:st2.playKey,game:'lights',rating:'10'}})).status,200);
+ const g=(await s.call('GET','/api/games')).json().games.find((x:any)=>x.id==='lights');assert.deepEqual(g.rating,{avg:8.5,count:2});
+ assert.deepEqual((await s.call('GET','/api/ratings')).json().ratings.signal,{avg:null,count:0});
+ s.tick(15*86400000);s.redis.kv.delete('prune:last');await s.call('GET','/api/leaderboard',{},{query:{game:'lights'}});
+ assert.deepEqual((await s.call('GET','/api/ratings')).json().ratings.lights,{avg:null,count:0},'expired handles take their ratings with them');});

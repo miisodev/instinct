@@ -42,7 +42,7 @@ async function purge(d:Deps,handle:string){const c=cfg(d.env);const lh=handle.to
  const [disp,hash]=await d.redis.pipe([['HGET',`pf:${c.season}:${lh}`,'handle'],['GET','h:'+lh]]);const names=[...new Set([handle,String(disp||handle)])];
  const cmds:Arg[][]=[['DEL','h:'+lh],['ZREM','act',lh]];if(hash)cmds.push(['DEL','t:'+hash]);
  cmds.push(['DEL',`pf:${c.season}:${lh}`],['DEL',`hist:${c.season}:${lh}`]);for(const n of names)cmds.push(['ZREM',`ov:${c.season}`,n]);
- for(const g of games){for(const n of names)cmds.push(['ZREM',`lb:${c.season}:${g.id}`,n]);cmds.push(['DEL',`r:${c.season}:${g.id}:${lh}`],['DEL',`n:${c.season}:${lh}:${g.id}`],['DEL',`a:${c.season}:${lh}:${g.id}`]);}
+ for(const g of games){for(const n of names)cmds.push(['ZREM',`lb:${c.season}:${g.id}`,n]);cmds.push(['HDEL','rt:'+g.id,lh],['DEL',`r:${c.season}:${g.id}:${lh}`],['DEL',`n:${c.season}:${lh}:${g.id}`],['DEL',`a:${c.season}:${lh}:${g.id}`]);}
  await d.redis.pipe(cmds);return cmds.length;}
 async function prune(d:Deps){try{const ok=await d.redis.cmd('SET','prune:last','1','NX','EX',3600);if(!ok)return;
  const old=await d.redis.cmd('ZRANGEBYSCORE','act','-inf',d.now(),'LIMIT',0,10) as string[];for(const lh of old)await purge(d,lh);}catch{/* best effort */}}
@@ -139,7 +139,7 @@ async function move(d:Deps,req:Req){const c=cfg(d.env);const id=req.body?.sessio
  if(ok!==1)throw new HttpError(409,'Conflict: another request moved this session. GET /api/session to resync.');
  if(err&&!sess.aborted)throw new HttpError(400,err,{...legalInfo(g,sess.state),moveRule:moveFormat(g.id),badMoves:sess.bad,maxBad:c.maxBad});
  if(final)await record(d,sess,g,score);
- return view(g,sess,{...(final?{final:true,recorded:true,finalScore:score}:{}),...(sess.aborted?{note:'Session ended: too many illegal moves. Score 0.'}:{})});}
+ return view(g,sess,{...(final?{final:true,recorded:true,finalScore:score,...(sess.handle&&sess.mode==='sealed'&&!sess.aborted?{rateIt:`How was ${g.name}? Rate it 1-10: POST /api/rate {"key":"<playKey>","game":"${g.id}","rating":8} (or GET /api/text/rate?key=KEY&game=${g.id}&rating=8). The average shows on the site.`}:{})}:{}),...(sess.aborted?{note:'Session ended: too many illegal moves. Score 0.'}:{})});}
 
 async function session(d:Deps,req:Req){const sess=await load(d,req.query.session);return view(games.find(x=>x.id===sess.game)!,sess);}
 
@@ -224,13 +224,22 @@ async function admin(d:Deps,req:Req){const secret=d.env.ADMIN_SECRET||'';const g
  let cursor='0';const extra:Arg[][]=[];do{const r=await d.redis.cmd('SCAN',cursor,'MATCH','lbp:*','COUNT',1000) as [string,string[]];cursor=String(r[0]);for(const k of r[1])extra.push(['ZREM',k,handle]);}while(cursor!=='0');if(extra.length)await d.redis.pipe(extra);
  return {deleted:handle,commands:n+extra.length,note:'Handle, play key, ranked board entries, profile and history removed. Counters in /api/stats are not rewound.'};}
 
+// ---------- ratings: a handle that has finished a ranked run of a game this season may rate it 1-10 (one per handle per game; re-rating replaces it) ----------
+async function rate(d:Deps,req:Req){const c=cfg(d.env);const [handle,th]=await authFull(d,req);const lh=handle.toLowerCase();
+ const gid=req.body?.game??req.query.game;const g=games.find(x=>x.id===gid);if(!g)throw new HttpError(400,'game=<id> required',{games:games.map(x=>x.id)});
+ const rating=Number(req.body?.rating??req.query.rating);if(!Number.isInteger(rating)||rating<1||rating>10)throw new HttpError(400,'rating must be a whole number from 1 to 10');
+ const played=Number(await d.redis.cmd('HLEN',`r:${c.season}:${g.id}:${lh}`))>0;if(!played)throw new HttpError(403,`Finish a ranked run of ${g.id} this season before rating it.`);
+ await d.redis.cmd('HSET','rt:'+g.id,lh,rating);await touch(d,handle,th);
+ return {handle,game:g.id,rating,...(await ratings(d))[g.id]};}
+async function ratings(d:Deps):Promise<Record<string,{avg:number|null;count:number}>>{const vals=await d.redis.pipe(games.map(g=>['HVALS','rt:'+g.id])) as (string[]|null)[];
+ return Object.fromEntries(games.map((g,i)=>{const v=(vals[i]||[]).map(Number).filter(x=>x>=1&&x<=10);return [g.id,{avg:v.length?Math.round(v.reduce((a,b)=>a+b,0)/v.length*10)/10:null,count:v.length}];}));}
 function gamesList(){return {games:games.map(g=>({id:g.id,name:g.name,category:g.category,maxTurns:g.maxTurns,openBook:!!g.openBook,rules:g.description,moveFormat:moveFormat(g.id)}))};}
-function moveFormat(id:string){return ({signal:'4 digits, each 0-3, e.g. "1020"',gridshift:'index (0-8) of the tile to slide into the gap, as a string',vault:'one of up, down, left, right, extract',handshake:'"C" (cooperate) or "D" (defect)',radar:'"row,col" with 0-7, e.g. "3,4"',heaps:'"heap:count", e.g. "2:3"',fourrows:'column 0-6 as a string',courier:'stop index 0-23 as a string',minefield:'"row,col" with 0-7, e.g. "3,4"',lights:'cell index 0-24 as a string'} as Record<string,string>)[id]??'see legalMoves';}
+function moveFormat(id:string){return ({signal:'4 digits, each 0-3, e.g. "1020"',gridshift:'index (0-8) of the tile to slide into the gap, as a string',vault:'one of up, down, left, right, extract',handshake:'"C" (cooperate) or "D" (defect)',radar:'"row,col" with 0-7, e.g. "3,4"',heaps:'"heap:count", e.g. "2:3"',fourrows:'column 0-6 as a string',courier:'stop index 0-23 as a string',minefield:'"row,col" with 0-7, e.g. "3,4"',lights:'cell index 0-24 as a string',prospector:'claim index 0-5 as a string',nextterm:'a whole number 0-999 as a string, e.g. "42"'} as Record<string,string>)[id]??'see legalMoves';}
 
 // ---------- plain-text mirror for fetch-only agents ----------
 function text(base:string,action:string,r:any){const L:string[]=[];
  const mv=(r.legalMoves as string[]|null|undefined);
- if(action==='games'){L.push('INSTINCT games. Pick a game and play. No sign-up.','');for(const g of r.games)L.push(`- ${g.id}: ${g.rules}\n  moves: ${g.moveFormat}`);L.push('',`NEXT (ranked): GET ${base}/api/text/start?handle=YOUR-NAME&game=GAME&mode=ranked  (claims the handle, returns a play key)`,`Or casual, anonymous: GET ${base}/api/text/start?game=GAME`);}
+ if(action==='games'){L.push('INSTINCT games. Pick a game and play. No sign-up.','');for(const g of r.games)L.push(`- ${g.id}: ${g.rules}\n  moves: ${g.moveFormat}${g.rating?.count?`   rated ${g.rating.avg}/10 by ${g.rating.count}`:''}`);L.push('',`NEXT (ranked): GET ${base}/api/text/start?handle=YOUR-NAME&game=GAME&mode=ranked  (claims the handle, returns a play key)`,`Or casual, anonymous: GET ${base}/api/text/start?game=GAME`);}
  else if(action==='register'||action==='claim'){L.push(`Handle claimed: ${r.handle}`,`PLAY KEY: ${r.playKey}`,'Shown once.','',`NEXT: GET ${base}/api/text/start?key=${r.playKey}&game=signal&mode=ranked`);}
  else if(action==='start'||action==='move'||action==='session'){L.push(`game: ${r.game}   mode: ${r.mode}${r.slot?` (slot ${r.slot} of ${r.of}, attempt ${r.attempt})`:` seed ${r.seed}`}`,`turn: ${r.turn}   ${r.done?'FINISHED':'in progress'}   score: ${r.score}`);if(r.playKey)L.push('',`Handle claimed: ${r.handle}`,`PLAY KEY (shown once, keep it): ${r.playKey}`,`Next start as this handle: GET ${base}/api/text/start?key=${r.playKey}&game=GAME&mode=ranked`);if(r.note)L.push(r.note);L.push('',r.description,'','observation: '+JSON.stringify(r.observation));
   if(r.done)L.push('',r.recorded?`FINAL SCORE ${r.finalScore} recorded.`:'Finished.',`Board: GET ${base}/api/text/board?game=${r.game}   Top agents: GET ${base}/api/text/overview`);
@@ -240,6 +249,8 @@ function text(base:string,action:string,r:any){const L:string[]=[];
  else if(action==='overview'){L.push(`Top agents, season ${r.season} (sum of per-game ranked scores)`,'');for(const x of r.rows)L.push(`${x.rank}. ${x.handle}  ${x.score}${x.reference?'  (reference policy)':''}`);if(!r.rows.length)L.push('(no entries yet)');}
  else if(action==='profile'){L.push(`${r.handle}  total ${r.total}  overview rank ${r.overviewRank??'-'}`);for(const [g,p] of Object.entries<any>(r.games))L.push(`${g}: score ${p.score}${p.best!==undefined?`, best run ${p.best}`:''}${p.runs!==undefined?`, ${p.runs} runs`:''}`);L.push('','recent runs (GET '+base+'/api/text/run?id=ID):');for(const x of r.recent.slice(0,10))L.push(`${x.game} slot ${x.slot} attempt ${x.attempt}: ${x.score}  id ${x.id}`);}
  else if(action==='run'){L.push(`${r.handle} ${r.game} slot ${r.slot} attempt ${r.attempt}: ${r.score} in ${r.turns} moves`,'moves: '+(r.moves as string[]).join(' '));}
+ else if(action==='rate'){L.push(`Rated ${r.game} ${r.rating}/10 as ${r.handle}. Average now ${r.avg} from ${r.count} rating${r.count===1?'':'s'}.`);}
+ else if(action==='ratings'){L.push('Game ratings (1-10, from agents who finished a ranked run):','');for(const [g,v] of Object.entries<any>(r.ratings))L.push(`${g}: ${v.avg??'-'} (${v.count})`);}
  else L.push(JSON.stringify(r));return L.join('\n')+'\n';}
 
 export const handle=(req:Req,d:Deps):Promise<Res>=>ctx.run({all:req.query.legal==='all'||req.body?.legal==='all',max:Number(d.env.MAX_LEGAL_LIST)||LEGAL_MAX},()=>handleInner(req,d));
@@ -258,7 +269,9 @@ async function handleInner(req:Req,d:Deps):Promise<Res>{
   const post=req.method==='POST'||isText;
   let result:any,action=path.slice(1),headers:Record<string,string>={};
   switch(path){
-   case '/games':result=gamesList();headers=cache;break;
+   case '/games':{const rt=await ratings(d);result={games:gamesList().games.map(x=>({...x,rating:rt[x.id]}))};headers={'cache-control':'public, s-maxage=120, stale-while-revalidate=300'};break;}
+   case '/ratings':result={ratings:await ratings(d),rule:'Agents rate games 1-10 after finishing a ranked run of them. One rating per handle per game.'};headers={'cache-control':'public, s-maxage=120, stale-while-revalidate=300'};break;
+   case '/rate':if(!post)throw new HttpError(405,'POST {"key":"...","game":"...","rating":1-10}');result=await rate(d,req);break;
    case '/leaderboard':case '/board':action='board';result=await leaderboard(d,req);headers=cache;break;
    case '/policies':{const pb=await policyBoard(d);result={...pb,tiers:Object.fromEntries(games.map(g=>[g.id,tierBounds(pb.games[g.id])])),tierRule:'Gold >= best reference mean, Silver >= 75% of it, Bronze >= 50%.'};}headers=cache;break;
    case '/overview':result=await overview(d);headers={'cache-control':'public, s-maxage=120, stale-while-revalidate=300'};break;
