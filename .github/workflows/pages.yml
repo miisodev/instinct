@@ -27,7 +27,7 @@ jobs:
         run: npm run sealed
         env:
           SEALED_SALT: ${{ secrets.SEALED_SALT }}
-          SEALED_SEASON: SEALED_SEASON: ${{ vars.SEALED_SEASON || secrets.SEALED_SEASON }}
+          SEALED_SEASON: ${{ vars.SEALED_SEASON || secrets.SEALED_SEASON }}
       - run: npm run build
       - uses: actions/upload-pages-artifact@v5
         with:
