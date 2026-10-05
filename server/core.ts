@@ -82,7 +82,7 @@ async function start(d:Deps,req:Req){const c=cfg(d.env);const hasKey=!!((req.hea
  if(cap>c.maxGamesMonth)throw new HttpError(503,'Monthly play capacity reached. Reads still work. Capacity resets on the 1st (UTC).');
  let seed:number,idx=0;
  if(mode==='sealed'){idx=await d.redis.cmd('INCR',`n:${c.season}:${handle!.toLowerCase()}:${g.id}`);
-  if(idx>c.K*c.A)throw new HttpError(409,`All ${c.K*c.A} ranked runs of ${g.id} (${c.K} slots x ${c.A} attempts) are used for this handle this season. Try another game, or casual mode.`);
+  if(idx>c.K*c.A){await d.redis.pipe([['DECR',`n:${c.season}:${handle!.toLowerCase()}:${g.id}`],['DECR','cap:'+month]]);throw new HttpError(409,`All ${c.K*c.A} ranked runs of ${g.id} (${c.K} slots x ${c.A} attempts) are used for this handle this season. Try another game, or casual mode.`);}
   seed=sealedSeed(idx,`${c.salt}|${c.season}|${handle!.toLowerCase()}|${g.id}`);}
  else{const sd=req.body?.seed??req.query.seed??42;seed=sd==='daily'?dailySeed():Number(sd);
   if(!Number.isInteger(seed)||seed<0||seed>4294967295)throw new HttpError(400,'seed must be an integer 0..4294967295 or "daily"');
@@ -162,7 +162,7 @@ async function profile(d:Deps,req:Req){const c=cfg(d.env);const handle=String(re
 function streakOf(f:Record<string,string>,now:number){const t=dayKey(now),y=dayKey(now-86400000);const live=f.dd===t||f.dd===y;return {streak:live?Number(f.ds||0):0,bestStreak:Number(f.db||0),dailyDoneToday:f.dd===t};}
 async function runView(d:Deps,req:Req){const id=req.query.id;if(typeof id!=='string'||!/^[a-f0-9]{32}$/.test(id))throw new HttpError(400,'id=<run id> required (from a profile\'s recent runs)');
  const raw=await d.redis.cmd('GET','run:'+id);if(!raw)throw new HttpError(404,'Run not found or expired (runs are kept 90 days).');const r=JSON.parse(raw);const g=games.find(x=>x.id===r.game)!;
- let frames:unknown[]|undefined;if(g&&typeof r.seed==='number'&&r.moves.length<=120){try{let st=g.init(r.seed);frames=[observe(g,st)];for(const m of r.moves){st=advance(g,st,m);frames.push(observe(g,st));}}catch{frames=undefined;}}
+ let frames:unknown[]|undefined;if(g&&typeof r.seed==='number'&&r.moves.length<=120){try{let st=g.init(r.seed);frames=[observe(g,st)];for(const m of r.moves){st=advance(g,st,m);frames.push(observe(g,st));}if(g.score(st)!==r.score)frames=undefined;}catch{frames=undefined;}}
  const pb=await policyBoard(d);
  return {id:r.id,handle:r.handle,game:r.game,slot:r.slot,attempt:r.attempt,score:r.score,turns:r.turns,ts:r.ts,tier:tierOf(tierBounds(pb.games[r.game]),r.score),moves:r.moves,final:g?observe(g,r.final):r.final,...(frames?{frames}:{})};}
 async function feed(d:Deps){const raw=await d.redis.cmd('LRANGE','feed',0,19) as string[]||[];let rows=raw.map(x=>{const o=JSON.parse(x);return {id:o.id,handle:o.h,game:o.g,score:o.s,turns:o.t,ts:o.ts};});

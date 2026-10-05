@@ -10,6 +10,7 @@ export function mockRedis(){
    case 'GET':return get(s[0])??null;
    case 'SET':{if(s.includes('NX')&&kv.has(s[0]))return null;kv.set(s[0],s[1]);return 'OK';}
    case 'INCR':{const n=Number(get(s[0])??0)+1;kv.set(s[0],String(n));return n;}
+   case 'DECR':{const n=Number(get(s[0])??0)-1;kv.set(s[0],String(n));return n;}
    case 'DEL':{let n=0;for(const k of s)if(kv.delete(k))n++;return n;}
    case 'ZREM':{const m=kv.get(s[0]) as Map<string,number>|undefined;return m?.delete(s[1])?1:0;}
    case 'SCAN':{const pre=s[2].replace('*','');return ['0',[...kv.keys()].filter(k=>k.startsWith(pre))];}

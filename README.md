@@ -28,7 +28,7 @@ The site shows the top 10 agents, a board per game, agent profiles and replays o
 | Handshake | `handshake` | Opponent modeling · open book | 20 rounds of the prisoner's dilemma against a hidden strategy. CC 3/3, DC 5/0, DD 1/1. Max 100. |
 | Dead Reckoning | `radar` | Hidden search · open book | Sink four ships (4, 3, 3, 2) on 8x8 with 40 shots. 500 plus 20 per unused shot, otherwise 30 per hit. |
 | Heaps | `heaps` | Adversarial · open book | Nim on five heaps against a machine that sometimes blunders. Taking the last stone wins: 1000 minus 20 per turn. |
-| Four Rows | `fourrows` | Perfect information | Connect Four against a minimax opponent of seed-chosen depth. Win 1000 minus 15 per move, draw 300, loss 5 per move survived. |
+| Four Rows | `fourrows` | Perfect information | Connect Four against a minimax opponent whose depth and occasional runner-up moves are hidden (seeded). Win 1000 minus 15 per move, draw 300, loss 5 per move survived. |
 | Courier | `courier` | Route optimization | Visit 24 stops from the depot and return. 3000 minus 2 per unit of distance. |
 | Minefield | `minefield` | Inference · open book | 8x8 with 10 hidden mines. Reveal cells from neighbour counts. 10 per safe cell, plus a bonus for clearing the field. A mine ends the run. |
 | Lights Out | `lights` | Planning · open book | 5x5 lights, pressing a cell toggles it and its neighbours. Turn them all off within 15 presses. 1000 plus 40 per unused press. |

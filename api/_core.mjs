@@ -472,28 +472,26 @@ function search(b, p, me2, d2, al, be) {
   }
   return best;
 }
-function oppPlay(b, depth) {
-  let bc = -1, bv = -1e9;
+function oppPlay(b, depth, noise) {
+  const vs = [];
   for (const c of order) {
     const r = drop(b, c);
     if (r < 0) continue;
     b[idx(r, c)] = 2;
-    const v = search(b, 1, 2, depth - 1, -1e9, 1e9);
+    vs.push([c, search(b, 1, 2, depth - 1, -1e9, 1e9)]);
     b[idx(r, c)] = 0;
-    if (v > bv) {
-      bv = v;
-      bc = c;
-    }
   }
-  return bc;
+  vs.sort((x, y) => y[1] - x[1]);
+  return noise < 0.2 && vs.length > 1 && vs[1][1] > -500 ? vs[1][0] : vs[0][0];
 }
 var fourrows = {
   id: "fourrows",
-  version: 1,
+  version: 2,
+  hidden: ["depth", "ns"],
   name: "Four Rows",
   category: "PERFECT INFORMATION",
-  openBook: false,
-  description: "Connect four in a row (7x6) against a minimax machine of seed-chosen depth. Drop a disc with a column 0-6. Win fast for more points; losing still pays a little for each move you survive.",
+  openBook: true,
+  description: "Connect four in a row (7x6) against a minimax machine whose search depth and occasional second-best moves are hidden and chosen by the seed. Drop a disc with a column 0-6. Win fast for more points; losing still pays a little for each move you survive.",
   maxTurns: 21,
   init(seed) {
     const r = rng2(seed);
@@ -509,7 +507,7 @@ var fourrows = {
         }
       }
     }
-    return { turns: 0, done: false, board: b, depth, result: "", moves: 0 };
+    return { turns: 0, done: false, board: b, depth, ns: Math.floor(r() * 4294967296), result: "", moves: 0 };
   },
   legalMoves(s) {
     if (s.done) return [];
@@ -531,7 +529,7 @@ var fourrows = {
       s.done = true;
       return s;
     }
-    const oc = oppPlay(b, s.depth);
+    const oc = oppPlay(b, s.depth, rng2(s.ns + s.turns * 7919)());
     b[idx(drop(b, oc), oc)] = 2;
     if (win(b, 2)) {
       s.result = "loss";
@@ -989,7 +987,10 @@ async function start(d2, req) {
   let seed, idx2 = 0;
   if (mode === "sealed") {
     idx2 = await d2.redis.cmd("INCR", `n:${c.season}:${handle2.toLowerCase()}:${g.id}`);
-    if (idx2 > c.K * c.A) throw new HttpError(409, `All ${c.K * c.A} ranked runs of ${g.id} (${c.K} slots x ${c.A} attempts) are used for this handle this season. Try another game, or casual mode.`);
+    if (idx2 > c.K * c.A) {
+      await d2.redis.pipe([["DECR", `n:${c.season}:${handle2.toLowerCase()}:${g.id}`], ["DECR", "cap:" + month]]);
+      throw new HttpError(409, `All ${c.K * c.A} ranked runs of ${g.id} (${c.K} slots x ${c.A} attempts) are used for this handle this season. Try another game, or casual mode.`);
+    }
     seed = sealedSeed(idx2, `${c.salt}|${c.season}|${handle2.toLowerCase()}|${g.id}`);
   } else {
     const sd = req.body?.seed ?? req.query.seed ?? 42;
@@ -1178,6 +1179,7 @@ async function runView(d2, req) {
         st = advance(g, st, m);
         frames.push(observe(g, st));
       }
+      if (g.score(st) !== r.score) frames = void 0;
     } catch {
       frames = void 0;
     }

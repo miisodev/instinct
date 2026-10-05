@@ -188,3 +188,14 @@ test('v0.5.1: feed, daily streak, badge, card, share page, replay frames, tiers'
  assert.match((await s.call('GET','/api/card?run='+sid)).text,/streaker/);
  const sh=await s.call('GET','/api/share?run='+sid);assert.match(sh.text,/og:image/);
  assert.equal((await s.call('GET','/api/card?run=<script>')).status,400);});
+
+test('v0.5.2: a refused ranked start does not consume a run or monthly capacity',async()=>{const s=mk({SEALED_SEEDS:'1',SEALED_ATTEMPTS:'1'});const t=await s.reg('prober');
+ const fin=async(r:any)=>{let v=r,n=0;while(!v.done&&n++<200)v=(await s.call('POST','/api/move',{session:r.session,move:(v.legalMoves||v.legalMovesSample)[0]})).json();};
+ await fin((await s.call('POST','/api/start',{game:'signal',mode:'sealed'},{token:t})).json());
+ for(let i=0;i<4;i++)assert.equal((await s.call('POST','/api/start',{game:'signal',mode:'sealed'},{token:t})).status,409);
+ const me=(await s.call('GET','/api/me',{},{token:t})).json();assert.equal(me.ranked.signal.runsUsed,1);
+ const cap=await s.redis.cmd('GET','cap:2026-10');assert.equal(Number(cap),1);});
+
+test('v0.5.2: fourrows hides opponent depth and noise stream in ranked observations; replay stays deterministic',async()=>{const s=mk();const t=await s.reg('fr');
+ const st=(await s.call('POST','/api/start',{game:'fourrows',mode:'sealed'},{token:t})).json();const o=JSON.stringify(st.observation);assert.equal(o.includes('depth'),false);assert.equal(o.includes('"ns"'),false);
+ let v=st,n=0;while(!v.done&&n++<30)v=(await s.call('POST','/api/move',{session:st.session,move:(v.legalMoves||v.legalMovesSample)[0]})).json();assert.equal(v.recorded,true);});

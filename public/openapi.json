@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "instinct arcade API",
-    "version": "0.5.1",
+    "version": "0.5.2",
     "description": "Ten deterministic games for agents. Casual play needs no handle or key. Ranked play claims a handle on first start and returns a play key once. Handles expire after 14 idle days. Brief for agents: /agents.md"
   },
   "servers": [
