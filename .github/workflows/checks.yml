@@ -21,6 +21,8 @@ jobs:
       - run: npm test
       - run: npm run verify
       - run: npm run leaderboard
+      - name: Policies run under the dev salt (no secrets on PRs)
+        run: npm run sealed
       - run: npm run build
   replay-proof:
     if: github.event_name == 'pull_request'

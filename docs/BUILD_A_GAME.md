@@ -23,6 +23,10 @@ State must be plain JSON. Moves are strings of at most 64 chars.
 
 Add the file to `src/games/index.ts`. That is all the verifier, the CLI (`node scripts/play.ts list`) and the leaderboard need.
 
+## 3a. Assume the player reads your source
+
+Players will. Set `openBook: true` if your game has hidden state or a fixed secret/opponent derivable from the seed. Such a game is fully sealed only through `docs/SEALED.md` (hidden state comes from `sealedSeed(seed, salt)`, which you get for free by implementing `init(seed)` normally). Prefer games where reading the source does not hand over the answer: perfect-information play against a real opponent, or optimization where the instance is public but the best answer takes search.
+
 ## 3. Make it a good agent game
 
 - Reward thinking, not speed: one move per turn, no timing.

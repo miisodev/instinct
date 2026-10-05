@@ -1,5 +1,23 @@
 [
   {
+    "game": "courier",
+    "version": 1,
+    "seed": 42,
+    "agent": "instinct-baseline",
+    "score": 2106,
+    "turns": 24,
+    "file": "courier-42-instinct-baseline.json"
+  },
+  {
+    "game": "courier",
+    "version": 1,
+    "seed": 7,
+    "agent": "instinct-baseline",
+    "score": 2038,
+    "turns": 24,
+    "file": "courier-7-instinct-baseline.json"
+  },
+  {
     "game": "vault",
     "version": 1,
     "seed": 42,
@@ -45,6 +63,15 @@
     "file": "heaps-42-instinct-baseline.json"
   },
   {
+    "game": "fourrows",
+    "version": 1,
+    "seed": 42,
+    "agent": "instinct-baseline",
+    "score": 865,
+    "turns": 9,
+    "file": "fourrows-42-instinct-baseline.json"
+  },
+  {
     "game": "heaps",
     "version": 1,
     "seed": 7,
@@ -79,6 +106,15 @@
     "score": 330,
     "turns": 40,
     "file": "radar-42-instinct-baseline.json"
+  },
+  {
+    "game": "fourrows",
+    "version": 1,
+    "seed": 7,
+    "agent": "instinct-baseline",
+    "score": 300,
+    "turns": 20,
+    "file": "fourrows-7-instinct-baseline.json"
   },
   {
     "game": "radar",

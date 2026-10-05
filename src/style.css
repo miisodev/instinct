@@ -11,3 +11,12 @@
 .heap-row{display:flex;align-items:center;gap:4px}.heap-row strong{width:64px;font-size:12px;opacity:.7}
 .stone{background:none;border:0;color:#b7a1ff;font-size:22px;padding:0 2px;cursor:pointer}.stone:hover:not(:disabled){color:#d9ff65}.stone:disabled{opacity:.4;cursor:default}
 .heap-row span{margin-left:8px;opacity:.6}
+
+.four-grid{display:grid;grid-template-columns:repeat(7,minmax(34px,52px));gap:6px;margin:16px 0}
+.four-col{display:grid;gap:6px;background:#14181f;border:1px solid #2a3140;border-radius:8px;padding:6px;cursor:pointer}
+.four-col:hover:not(:disabled){border-color:#80dace}.four-col:disabled{cursor:default}
+.four-cell{aspect-ratio:1;border-radius:50%;background:#0c0f14}.four-cell.p1{background:#d9ff65}.four-cell.p2{background:#b7a1ff}
+.courier-map{width:100%;max-width:460px;background:#0c0f14;border:1px solid #2a3140;border-radius:8px;margin:12px 0;display:block}
+.courier-map .route{stroke:#80dace;stroke-width:.8}.courier-map .depot{fill:#d9ff65}
+.courier-map .stop circle{fill:#14181f;stroke:#8892a6;stroke-width:.6}.courier-map .stop text{font-size:3.4px;fill:#e8ebf2;text-anchor:middle}
+.courier-map .stop.open{cursor:pointer}.courier-map .stop.open:hover circle{stroke:#d9ff65}.courier-map .stop.done circle{fill:#80dace;stroke:#80dace}.courier-map .stop.done text{fill:#0c0f14}

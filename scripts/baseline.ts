@@ -25,6 +25,21 @@ const pol:Record<string,(g:Game,s:State)=>string>={
   for(const x of [...shots].reverse()){if(!x.hit)continue;const [r,c]=x.m.split(',').map(Number);for(const [a,b] of [[r,c+1],[r,c-1],[r+1,c],[r-1,c]]){const m=`${a},${b}`;if(legal.includes(m))return m;}}
   return legal.find(m=>{const [r,c]=m.split(',').map(Number);return (r+c)%2===0;})??legal[0];},
  heaps(g,s){const h=s.heaps as number[];const x=h.reduce((a,b)=>a^b,0);for(let i=0;i<h.length;i++){const t=h[i]^x;if(t<h[i])return `${i}:${h[i]-t}`;}const i=h.findIndex(v=>v>0);return `${i}:1`;},
+ fourrows(g,s){const W=7,H=6;const b=[...(s.board as number[])];const drop=(c:number)=>{for(let r=H-1;r>=0;r--)if(!b[r*W+c])return r;return -1;};
+  const win=(p:number)=>{for(let r=0;r<H;r++)for(let c=0;c<W;c++)for(const [dr,dc] of [[0,1],[1,0],[1,1],[1,-1]]){let n=0;for(let k=0;k<4;k++){const rr=r+dr*k,cc=c+dc*k;if(rr<0||rr>=H||cc<0||cc>=W||b[rr*W+cc]!==p)break;n++;}if(n===4)return true;}return false;};
+  const ev=()=>{let v=0;for(let r=0;r<H;r++)for(let c=0;c<W;c++){const x=b[r*W+c];if(x)v+=(x===1?1:-1)*(3-Math.abs(c-3));}return v;};
+  const ord=[3,2,4,1,5,0,6];
+  const ab=(p:number,d:number,al:number,be:number):number=>{if(win(1))return 1000+d;if(win(2))return -1000-d;const mv=ord.filter(c=>drop(c)>=0);if(!mv.length)return 0;if(!d)return ev();let best=p===1?-1e9:1e9;for(const c of mv){const r=drop(c);b[r*W+c]=p;const v=ab(3-p,d-1,al,be);b[r*W+c]=0;if(p===1){best=Math.max(best,v);al=Math.max(al,v);}else{best=Math.min(best,v);be=Math.min(be,v);}if(al>=be)break;}return best;};
+  let bc=-1,bv=-1e9;for(const c of ord){const r=drop(c);if(r<0)continue;b[r*W+c]=1;const v=ab(2,5,-1e9,1e9);b[r*W+c]=0;if(v>bv){bv=v;bc=c;}}return String(bc);},
+ courier(g,s){const P=s.points as {x:number;y:number}[];const dep=s.depot as {x:number;y:number};const dist=(a:{x:number;y:number},b:{x:number;y:number})=>Math.hypot(a.x-b.x,a.y-b.y);
+  if(!(globalThis as any).__route||(s.turns as number)===0){// nearest neighbour then 2-opt on the full tour
+   let order:number[]=[];const left=new Set(P.map((_,i)=>i));let cur=dep;while(left.size){let bi=-1,bd=1e9;for(const i of left){const dd=dist(cur,P[i]);if(dd<bd){bd=dd;bi=i;}}order.push(bi);left.delete(bi);cur=P[bi];}
+   const len=(o:number[])=>{let L=dist(dep,P[o[0]]);for(let i=1;i<o.length;i++)L+=dist(P[o[i-1]],P[o[i]]);return L+dist(P[o[o.length-1]],dep);};
+   let improved=true;while(improved){improved=false;for(let i=0;i<order.length-1;i++)for(let j=i+1;j<order.length;j++){const n=[...order.slice(0,i),...order.slice(i,j+1).reverse(),...order.slice(j+1)];if(len(n)<len(order)-1e-9){order=n;improved=true;}}}
+   // or-opt: move single stops
+   improved=true;while(improved){improved=false;for(let i=0;i<order.length;i++)for(let j=0;j<order.length;j++){if(i===j)continue;const n=[...order];const [x]=n.splice(i,1);n.splice(j,0,x);if(len(n)<len(order)-1e-9){order=n;improved=true;}}}
+   (globalThis as any).__route=order;}
+  return String((globalThis as any).__route[s.turns as number]);},
 };
 const seeds=process.argv.slice(2).map(a=>a==='daily'?dailySeed():Number(a));if(!seeds.length)seeds.push(42);
 mkdirSync('results',{recursive:true});

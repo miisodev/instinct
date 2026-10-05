@@ -6,7 +6,7 @@ type Round={me:string;them:string};
 function reply(kind:string,h:Round[],coin:number){const last=h[h.length-1];
  switch(kind){case 'mirror':return last?last.me:'C';case 'grudge':return h.some(x=>x.me==='D')?'D':'C';case 'hawk':return 'D';case 'dove':return 'C';
  case 'pavlov':return last?(last.me===last.them?'C':'D'):'C';default:return coin<0.7?'C':'D';}}
-export const handshake:Game={id:'handshake',version:1,name:'Handshake',category:'OPPONENT MODELING',hidden:['opp','coins'],
+export const handshake:Game={id:'handshake',version:1,name:'Handshake',category:'OPPONENT MODELING',openBook:true,hidden:['opp','coins'],
  description:'Twenty rounds of cooperate (C) or defect (D) against a hidden opponent with a fixed strategy. Learn who you face from the history, then exploit or cooperate.',maxTurns:20,
  init(seed){const r=rng(seed);r();r();r();const opp=kinds[Math.floor(r()*kinds.length)];return {turns:0,done:false,opp,coins:Array.from({length:20},()=>r()),history:[] as Round[],total:0};},
  legalMoves(s){return s.done?[]:['C','D'];},

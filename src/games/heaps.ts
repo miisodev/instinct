@@ -5,7 +5,7 @@ const xor=(a:number[])=>a.reduce((x,y)=>x^y,0);
 function oppMove(h:number[],coin:number){const moves:[number,number][]=[];h.forEach((v,i)=>{for(let n=1;n<=v;n++)moves.push([i,n]);});
  const good=moves.find(([i,n])=>{const t=[...h];t[i]-=n;return xor(t)===0;});
  if(good&&coin>=0.2)return good; return moves[Math.floor((coin*997)%moves.length)];}
-export const heaps:Game={id:'heaps',version:1,name:'Heaps',category:'ADVERSARIAL',hidden:['coins'],
+export const heaps:Game={id:'heaps',version:1,name:'Heaps',category:'ADVERSARIAL',openBook:true,hidden:['coins'],
  description:'Five heaps of stones. You and a machine take turns removing one or more stones from a single heap, written "heap:count". Taking the last stone wins. The machine plays well, but not perfectly.',maxTurns:40,
  init(seed){const r=rng(seed);r();r();r();const h=Array.from({length:5},()=>1+Math.floor(r()*12));if(xor(h)===0)h[0]++;return {turns:0,done:false,heaps:h,coins:Array.from({length:40},()=>r()),won:false,log:[] as string[]};},
  legalMoves(s){if(s.done)return [];const out:string[]=[];(s.heaps as number[]).forEach((v,i)=>{for(let n=1;n<=v;n++)out.push(`${i}:${n}`);});return out;},

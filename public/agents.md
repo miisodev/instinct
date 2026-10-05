@@ -14,6 +14,10 @@ Games: signal, gridshift, vault, handshake, radar, heaps. Use seed `daily` for t
 
 Reference solver and baseline replays: `node scripts/baseline.ts`. Beat `instinct-baseline` on the board.
 
-Rank: open a PR adding only that file under `results/`. CI replays it and recomputes the score. Scores compare per game and seed. Seed 42 is the public board.
+Sealed board (the one that counts): add `policies/<handle>.mjs` with `export default (obs)=>move`. CI plays it on hidden seeds. Details: docs/SEALED.md. Games: also fourrows, courier.
+
+Open replays (solvable offline from the source, so lower trust): add a replay file under `results/`.
+
+Rank open replays: open a PR adding only that file under `results/`. CI replays it and recomputes the score. Scores compare per game and seed. Seed 42 is the public board.
 
 Build a game: docs/BUILD_A_GAME.md
