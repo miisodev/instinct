@@ -8,6 +8,25 @@ function four(board,L){const W=7,H=6,b=[...board];const drop=c=>{for(let r=H-1;r
  const ord=[3,2,4,1,5,0,6];
  const ab=(p,d,al,be)=>{if(win(1))return 1000+d;if(win(2))return -1000-d;const mv=ord.filter(c=>drop(c)>=0);if(!mv.length)return 0;if(!d)return ev();let best=p===1?-1e9:1e9;for(const c of mv){const r=drop(c);b[r*W+c]=p;const v=ab(3-p,d-1,al,be);b[r*W+c]=0;if(p===1){best=Math.max(best,v);al=Math.max(al,v);}else{best=Math.min(best,v);be=Math.min(be,v);}if(al>=be)break;}return best;};
  let bc=-1,bv=-1e9;for(const c of ord){const r=drop(c);if(r<0)continue;b[r*W+c]=1;const v=ab(2,5,-1e9,1e9);b[r*W+c]=0;if(v>bv){bv=v;bc=c;}}return String(bc>=0?bc:L[0]);}
+
+// lights: solve A x = b over GF(2); the null space is tiny, so take the lightest of the solutions.
+function lightsMove(lit,L){const n=25,idx=(r,c)=>r*5+c;const rows=[];for(let i=0;i<n;i++){const r=Math.floor(i/5),c=i%5;let m=0n;for(const [dr,dc] of [[0,0],[1,0],[-1,0],[0,1],[0,-1]]){const rr=r+dr,cc=c+dc;if(rr>=0&&rr<5&&cc>=0&&cc<5)m|=1n<<BigInt(idx(rr,cc));}rows.push([m,lit[i]?1:0]);}
+ // rows[i]: cells toggled by pressing i (symmetric matrix), rhs = lit[i]. Gaussian elimination on equations "sum over j of A[i][j] x_j = lit[i]".
+ const piv=[];let r0=0;const eq=rows.map(([m,b])=>({m,b}));for(let col=0;col<n&&r0<n;col++){let p=-1;for(let i=r0;i<n;i++)if((eq[i].m>>BigInt(col))&1n){p=i;break;}if(p<0)continue;[eq[r0],eq[p]]=[eq[p],eq[r0]];for(let i=0;i<n;i++)if(i!==r0&&((eq[i].m>>BigInt(col))&1n)){eq[i].m^=eq[r0].m;eq[i].b^=eq[r0].b;}piv.push(col);r0++;}
+ const free=[];for(let c=0;c<n;c++)if(!piv.includes(c))free.push(c);let best=null;
+ for(let mask=0;mask<(1<<free.length);mask++){const x=Array(n).fill(0);free.forEach((f,k)=>{x[f]=(mask>>k)&1;});for(let k=piv.length-1;k>=0;k--){const e=eq[k];let v=e.b;for(const f of free)if((e.m>>BigInt(f))&1n)v^=x[f];x[piv[k]]=v;}
+  if(eq.slice(piv.length).some(e=>e.b))return L[0];const w=x.reduce((a,b)=>a+b,0);if(!best||w<best.w)best={w,x};}
+ const k=best?best.x.findIndex(v=>v===1):-1;return k>=0&&L.includes(String(k))?String(k):L[0];}
+// minefield: constraint deduction, then the lowest-risk guess.
+function mineMove(board,L){const N=8,cell=(r,c)=>board[r][c];const nb=(r,c)=>{const o=[];for(let dr=-1;dr<=1;dr++)for(let dc=-1;dc<=1;dc++){if(!dr&&!dc)continue;const a=r+dr,b=c+dc;if(a>=0&&a<N&&b>=0&&b<N)o.push([a,b]);}return o;};
+ const M=new Set(),S=new Set(),key=(r,c)=>r*N+c;let ch=true;
+ while(ch){ch=false;for(let r=0;r<N;r++)for(let c=0;c<N;c++){const v=cell(r,c);if(v==='#'||v==='.')continue;const n=+v;const unk=nb(r,c).filter(([a,b])=>cell(a,b)==='#'&&!M.has(key(a,b))&&!S.has(key(a,b)));const m=nb(r,c).filter(([a,b])=>M.has(key(a,b))).length;
+   if(!unk.length)continue;if(n-m===0){for(const [a,b] of unk)S.add(key(a,b));ch=true;}else if(n-m===unk.length){for(const [a,b] of unk)M.add(key(a,b));ch=true;}}}
+ for(const m of L){const [r,c]=m.split(',').map(Number);if(S.has(key(r,c)))return m;}
+ let unrevealed=0;for(let r=0;r<N;r++)for(let c=0;c<N;c++)if(cell(r,c)==='#')unrevealed++;const dens=Math.max(0.01,(10-M.size)/Math.max(1,unrevealed-M.size));
+ let bm=L[0],bp=2;for(const m of L){const [r,c]=m.split(',').map(Number);if(M.has(key(r,c)))continue;let p=0,k=0;for(const [a,b] of nb(r,c)){const v=cell(a,b);if(v==='#'||v==='.')continue;const unk=nb(a,b).filter(([x,y])=>cell(x,y)==='#'&&!M.has(key(x,y))).length;const mm=nb(a,b).filter(([x,y])=>M.has(key(x,y))).length;if(unk){p=Math.max(p,(+v-mm)/unk);k++;}}
+  const risk=k?p:dens;if(risk<bp){bp=risk;bm=m;}}
+ return bm;}
 export default function(o){const ob=o.observation,L=o.legalMoves;
  switch(o.game){
  case 'signal':return codes.find(c=>ob.history.every(x=>{const [e,n]=fb(c,x.guess);return e===x.exact&&n===x.near;}));
@@ -22,4 +41,6 @@ export default function(o){const ob=o.observation,L=o.legalMoves;
  case 'heaps':{const h=ob.heaps;const x=h.reduce((a,b)=>a^b,0);for(let i=0;i<h.length;i++){const t=h[i]^x;if(t<h[i])return `${i}:${h[i]-t}`;}return `${h.findIndex(v=>v>0)}:1`;}
  case 'fourrows':return four(ob.board,L);
  case 'courier':{const P=ob.points;let cur=ob.at<0?ob.depot:P[ob.at];let b=null,bd=1e9;for(const m of L){const p=P[+m];const d=Math.hypot(cur.x-p.x,cur.y-p.y);if(d<bd){bd=d;b=m;}}return b;}
+ case 'lights':return lightsMove(ob.lights,L);
+ case 'minefield':return mineMove(ob.board,L);
  default:return L[0];}}

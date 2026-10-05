@@ -1,0 +1,17 @@
+// v0.5.1 helpers: tiers, SVG badge/card, daily game. Pure functions, no I/O.
+import {games} from '../src/games/index.ts';
+import {dailySeed} from '../src/engine.ts';
+export const TIERS=[['gold',1],['silver',0.75],['bronze',0.5]] as const;
+export const TIER_COLOR:Record<string,string>={gold:'#e5b82e',silver:'#b7c0cc',bronze:'#c8814a',none:'#6b7280'};
+/** Tier thresholds are fractions of the best reference-policy mean on hidden seeds: Gold >= best, Silver >= 75%, Bronze >= 50%. */
+export function tierBounds(refs:{mean:number}[]|undefined){const best=Math.max(0,...(refs??[]).map(r=>r.mean));if(!best)return null;return {gold:round(best),silver:round(best*0.75),bronze:round(best*0.5)};}
+export const round=(n:number)=>Math.round(n*10)/10;
+export function tierOf(b:ReturnType<typeof tierBounds>,score:number):'gold'|'silver'|'bronze'|'none'|null{if(!b)return null;return score>=b.gold?'gold':score>=b.silver?'silver':score>=b.bronze?'bronze':'none';}
+export const dayKey=(ms:number)=>new Date(ms).toISOString().slice(0,10);
+export function dailyGame(ms:number){return games[dailySeed(new Date(ms))%games.length];}
+export const xml=(s:unknown)=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
+const w=(s:string)=>Math.round(s.length*6.6+12);
+export function badge(label:string,value:string,color:string){const a=w(label),b=w(value),t=a+b;
+ return `<svg xmlns="http://www.w3.org/2000/svg" width="${t}" height="20" role="img" aria-label="${xml(label)}: ${xml(value)}"><title>${xml(label)}: ${xml(value)}</title><linearGradient id="s" x2="0" y2="100%"><stop offset="0" stop-color="#bbb" stop-opacity=".1"/><stop offset="1" stop-opacity=".1"/></linearGradient><clipPath id="r"><rect width="${t}" height="20" rx="3"/></clipPath><g clip-path="url(#r)"><rect width="${a}" height="20" fill="#1a1d23"/><rect x="${a}" width="${b}" height="20" fill="${color}"/><rect width="${t}" height="20" fill="url(#s)"/></g><g fill="#fff" text-anchor="middle" font-family="Verdana,DejaVu Sans,sans-serif" font-size="11"><text x="${a/2}" y="14">${xml(label)}</text><text x="${a+b/2}" y="14" fill="${color==='#e5b82e'||color==='#b7c0cc'?'#111':'#fff'}">${xml(value)}</text></g></svg>`;}
+export function card(o:{game:string;handle:string;score:number;turns:number;tier:string|null;slot:number}){const col=TIER_COLOR[o.tier||'none'];
+ return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630"><rect width="1200" height="630" fill="#0b0d10"/><rect x="40" y="40" width="1120" height="550" rx="24" fill="#12161b" stroke="#232a33" stroke-width="2"/><g font-family="Verdana,DejaVu Sans,sans-serif"><text x="90" y="125" font-size="28" fill="#b6f23a" letter-spacing="6">INSTINCT</text><text x="90" y="215" font-size="54" fill="#e7ebf0" font-weight="700">${xml(o.game)}</text><text x="90" y="270" font-size="32" fill="#8b95a3">by ${xml(o.handle)}</text><text x="90" y="470" font-size="190" fill="#b6f23a" font-weight="700">${xml(o.score)}</text><text x="90" y="530" font-size="30" fill="#8b95a3">points in ${xml(o.turns)} moves</text>${o.tier&&o.tier!=='none'?`<circle cx="990" cy="300" r="110" fill="none" stroke="${col}" stroke-width="14"/><text x="990" y="288" font-size="26" fill="${col}" text-anchor="middle" letter-spacing="4">TIER</text><text x="990" y="338" font-size="44" fill="${col}" text-anchor="middle" font-weight="700">${xml(o.tier!.toUpperCase())}</text>`:''}<text x="1110" y="548" font-size="24" fill="#8b95a3" text-anchor="end">instinct.miiso.dev</text></g></svg>`;}

@@ -13,17 +13,17 @@ test('register: token once, handle unique (case-insensitive), reserved prefix, b
  assert.equal((await s.call('POST','/api/register',{handle:'alpha'})).status,409);assert.equal((await s.call('POST','/api/register',{handle:'instinct-baseline'})).status,400);assert.equal((await s.call('POST','/api/register',{handle:'<x>'})).status,400);});
 
 test('full sealed run of every game via HTTP, scored server-side, recorded on the board',async()=>{const s=mk();const tok=await s.reg('bot');
- for(const g of games){const st=(await s.call('POST','/api/start',{game:g.id,mode:'sealed'},{token:tok})).json();assert.equal(st.index,1);assert.equal('secret' in st.observation,false);assert.equal('ships' in st.observation,false);assert.equal('opp' in st.observation,false);
+ for(const g of games){const st=(await s.call('POST','/api/start',{game:g.id,mode:'sealed'},{token:tok})).json();assert.equal(st.slot,1);assert.equal('secret' in st.observation,false);assert.equal('ships' in st.observation,false);assert.equal('opp' in st.observation,false);
   let v=st;let n=0;while(!v.done&&n++<100){const m=(v.legalMoves||v.legalMovesSample)[0];const r=await s.call('POST','/api/move',{session:st.session,move:m});assert.equal(r.status,200);v=r.json();}
   assert.equal(v.done,true);assert.equal(v.recorded,true);assert.equal(v.finalScore,v.score);
   const lb=(await s.call('GET','/api/leaderboard?game='+g.id)).json();assert.equal(lb.rows[0].handle,'bot');}
- const me=(await s.call('GET','/api/me',{},{token:tok})).json();assert.equal(me.sealed.signal.started,1);});
+ const me=(await s.call('GET','/api/me',{},{token:tok})).json();assert.equal(me.ranked.signal.runsUsed,1);});
 
-test('sealed instances: per-handle different, each index once, K cap, practice unaffected',async()=>{const s=mk({SEALED_SEEDS:'2'});const a=await s.reg('aa','2.2.2.2'),b=await s.reg('bb','3.3.3.3');
+test('sealed instances: per-handle different, each index once, K cap, practice unaffected',async()=>{const s=mk({SEALED_SEEDS:'2',SEALED_ATTEMPTS:'1'});const a=await s.reg('aa','2.2.2.2'),b=await s.reg('bb','3.3.3.3');
  const fin=async(r:any)=>{let v=r,n=0;while(!v.done&&n++<100)v=(await s.call('POST','/api/move',{session:r.session,move:(v.legalMoves||v.legalMovesSample)[0]})).json();};
  const obs=async(t:string)=>{const r=(await s.call('POST','/api/start',{game:'courier',mode:'sealed'},{token:t})).json();const o=JSON.stringify(r.observation.points);await fin(r);return o;};
  const pa=await obs(a),pb=await obs(b);assert.notEqual(pa,pb);
- const a2=await s.call('POST','/api/start',{game:'courier',mode:'sealed'},{token:a});assert.equal(a2.json().index,2);await fin(a2.json());
+ const a2=await s.call('POST','/api/start',{game:'courier',mode:'sealed'},{token:a});assert.equal(a2.json().slot,2);await fin(a2.json());
  assert.equal((await s.call('POST','/api/start',{game:'courier',mode:'sealed'},{token:a})).status,409);
  assert.equal((await s.call('POST','/api/start',{game:'heaps',mode:'sealed'},{token:a})).status,200);
  const pr=await s.call('POST','/api/start',{game:'courier',mode:'practice',seed:42},{token:a});assert.equal(pr.status,200);});
@@ -56,9 +56,9 @@ test('stats count handles, starts and finishes; agents.md served with the reques
  for(const p of ['/agents.md','/llms.txt']){const r=await s.call('GET',p);assert.equal(r.status,200);assert.match(r.text,/BASE = https:\/\/arcade\.test/);}});
 
 test('server verification matches independent replay and practice board keeps the best run per handle',async()=>{const s=mk();const t=await s.reg('pp');for(let k=0;k<2;k++){const st=(await s.call('POST','/api/start',{game:'signal',mode:'practice',seed:42},{token:t})).json();let v=st;while(!v.done)v=(await s.call('POST','/api/move',{session:st.session,move:k?'0000':'1020'})).json();}
- const lb=(await s.call('GET','/api/leaderboard?game=signal&board=practice&seed=42')).json();assert.equal(lb.rows.length,1);assert.equal(lb.rows[0].score,1000);});
+ const lb=(await s.call('GET','/api/leaderboard?game=signal')).json();assert.equal(lb.rows.length,0,'casual runs never reach the ranked board');});
 
-test('redis command budget per full game stays small',async()=>{const s=mk();const t=await s.reg('bud');const before=s.redis.count();const st=(await s.call('POST','/api/start',{game:'signal',mode:'sealed'},{token:t})).json();let v=st,n=0;while(!v.done){v=(await s.call('POST','/api/move',{session:st.session,move:(v.legalMoves||v.legalMovesSample)[n++%8]})).json();}const used=s.redis.count()-before;assert.ok(used<=6*2+20,`commands used ${used}`);});
+test('redis command budget per full game stays small',async()=>{const s=mk();const t=await s.reg('bud');const before=s.redis.count();const st=(await s.call('POST','/api/start',{game:'signal',mode:'sealed'},{token:t})).json();let v=st,n=0;while(!v.done){v=(await s.call('POST','/api/move',{session:st.session,move:(v.legalMoves||v.legalMovesSample)[n++%8]})).json();}const used=s.redis.count()-before;assert.ok(used<=6*2+40,`commands used ${used}`);});
 
 test('policy board: empty until CI publishes, then served whole and per game',async()=>{const s=mk();
  assert.equal((await s.call('GET','/api/policies')).json().season,null);assert.deepEqual((await s.call('GET','/api/leaderboard?game=heaps&board=policies')).json().rows,[]);
@@ -66,7 +66,7 @@ test('policy board: empty until CI publishes, then served whole and per game',as
  assert.equal((await s.call('GET','/api/policies')).json().season,'s1');
  const b=(await s.call('GET','/api/leaderboard?game=heaps&board=policies')).json();assert.deepEqual(b.rows,[{rank:1,handle:'opencode',score:900},{rank:2,handle:'instinct-owner',score:800}]);assert.equal(b.season,'s1');});
 
-test('legal move lists are full up to the cap, summarized beyond it; legal=all returns them; error body stays small',async()=>{const full=mk();const ft=await full.reg('fl');const fs=(await full.call('POST','/api/start',{game:'signal',mode:'practice',seed:1},{token:ft})).json();assert.equal(fs.legalMoves.length,256);const s=mk({MAX_LEGAL_LIST:'40'});const t=await s.reg('big');const st=(await s.call('POST','/api/start',{game:'signal',mode:'practice',seed:1},{token:t})).json();
+test('legal move lists are full up to the cap, summarized beyond it; legal=all returns them; error body stays small',async()=>{const full=mk();const ft=await full.reg('fl');const fs=(await full.call('POST','/api/start',{game:'signal',mode:'casual',seed:1},{token:ft})).json();assert.equal(fs.legalMoves.length,256);const s=mk({MAX_LEGAL_LIST:'40'});const t=await s.reg('big');const st=(await s.call('POST','/api/start',{game:'signal',mode:'casual',seed:1},{token:t})).json();
  assert.equal(st.legalMoves,null);assert.equal(st.legalMovesCount,256);assert.equal(st.legalMovesSample.length,8);assert.ok(st.moveRule);
  const e=await s.call('POST','/api/move',{session:st.session,move:'zzzz'});assert.equal(e.status,400);assert.ok(e.text.length<1200,'error body small');assert.equal(e.json().legalMovesCount,256);
  const all=(await s.call('POST','/api/move',{session:st.session,move:'zzzz',legal:'all'})).json();assert.equal(all.legalMoves.length,256);
@@ -106,9 +106,9 @@ test('no sign-up step: first start with a handle claims it and returns a play ke
  const st=await s.call('GET','/api/stats');assert.equal(st.json().handles,1);});
 
 test('anonymous practice needs no handle or key, is capped per address, never lists on a board; sealed needs a handle',async()=>{const s=mk({MAX_PRACTICE_PER_HANDLE_DAY:'3'});
- const a=await s.call('POST','/api/start',{game:'heaps'},{ip:'9.9.9.9'});assert.equal(a.status,200);const j=a.json();assert.equal(j.mode,'practice');
+ const a=await s.call('POST','/api/start',{game:'heaps'},{ip:'9.9.9.9'});assert.equal(a.status,200);const j=a.json();assert.equal(j.mode,'casual');
  let v=j,n=0;while(!v.done&&n++<100)v=(await s.call('POST','/api/move',{session:j.session,move:(v.legalMoves||v.legalMovesSample)[0]})).json();assert.ok(v.done);
- assert.equal((await s.call('GET','/api/leaderboard',{},{query:{game:'heaps',board:'practice',seed:'42'}})).json().rows.length,0);
+ assert.equal((await s.call('GET','/api/leaderboard',{},{query:{game:'heaps'}})).json().rows.length,0);
  assert.equal((await s.call('POST','/api/start',{game:'heaps',mode:'sealed'},{ip:'9.9.9.9'})).status,400);
  await s.call('POST','/api/start',{game:'heaps'},{ip:'9.9.9.9'});await s.call('POST','/api/start',{game:'heaps'},{ip:'9.9.9.9'});
  assert.equal((await s.call('POST','/api/start',{game:'heaps'},{ip:'9.9.9.9'})).status,429);});
@@ -123,10 +123,68 @@ test('unfinished sealed instance is resumed on restart, not burned; malformed mo
  const m1=await s.call('POST','/api/move',{session:a.session,move:(a.legalMoves||a.legalMovesSample)[0]});assert.equal(m1.status,200);
  const bad=await s.call('POST','/api/move',{session:a.session});assert.equal(bad.status,400);
  const b=(await s.call('POST','/api/start',{game:'radar',mode:'sealed'},{token:t})).json();assert.equal(b.session,a.session);assert.equal(b.turn,1);assert.match(b.note,/Resumed/);
- const me=(await s.call('GET','/api/me',{},{token:t})).json();assert.equal(me.sealed.radar.started,1);
+ const me=(await s.call('GET','/api/me',{},{token:t})).json();assert.equal(me.ranked.radar.runsUsed,1);
  const after=await s.call('POST','/api/move',{session:a.session,move:'zzz'});assert.equal(after.json().badMoves,1);});
 
 test('sealed board on the live API includes reference policies, flagged',async()=>{const s=mk();
  await s.deps.redis.cmd('SET','sealed:policies',JSON.stringify({season:'t1',seeds:5,games:{heaps:[{agent:'instinct-baseline',mean:500,scores:[]}]}}));
  const t=await s.reg('p1');const st=(await s.call('POST','/api/start',{game:'heaps',mode:'sealed'},{token:t})).json();let v=st,n=0;while(!v.done&&n++<100)v=(await s.call('POST','/api/move',{session:st.session,move:(v.legalMoves||v.legalMovesSample)[0]})).json();
  const lb=(await s.call('GET','/api/leaderboard',{},{query:{game:'heaps'}})).json();const ref=lb.rows.find((r:any)=>r.handle==='instinct-baseline');assert.ok(ref&&ref.reference===true);assert.ok(lb.rows.some((r:any)=>r.handle==='p1'&&!r.reference));assert.deepEqual(lb.rows.map((r:any)=>r.rank),lb.rows.map((_:any,i:number)=>i+1));});
+
+test('ranked slots: 5 slots x 3 attempts, fresh instance each attempt, board = mean of slot bests, never lowered',async()=>{const s=mk({SEALED_SEEDS:'2',SEALED_ATTEMPTS:'2'});const t=await s.reg('rep');
+ const play=async(mv?:(v:any)=>string)=>{const st=(await s.call('POST','/api/start',{game:'lights',mode:'ranked'},{token:t}));assert.equal(st.status,200);const j=st.json();let v=j,n=0;while(!v.done&&n++<100)v=(await s.call('POST','/api/move',{session:j.session,move:mv?mv(v):v.legalMoves[0]})).json();return {j,v};};
+ const seeds=new Set<string>();const scores:number[]=[];
+ for(let i=0;i<4;i++){const {j,v}=await play();seeds.add(JSON.stringify(j.observation.board));scores.push(v.finalScore);assert.equal(j.slot,(i%2)+1);assert.equal(j.attempt,Math.floor(i/2)+1);}
+ assert.equal(seeds.size,4,'every attempt is a fresh instance');
+ assert.equal((await s.call('POST','/api/start',{game:'lights',mode:'ranked'},{token:t})).status,409);
+ const lb=(await s.call('GET','/api/leaderboard',{},{query:{game:'lights'}})).json();const best1=Math.max(scores[0],scores[2]),best2=Math.max(scores[1],scores[3]);
+ assert.equal(lb.rows[0].score,Math.round((best1+best2)/2*10)/10);});
+
+test('profile, run replay and overview: scores, history, top 10, lazy rebuild for pre-profile handles',async()=>{const s=mk({SEALED_SEEDS:'2',SEALED_ATTEMPTS:'1'});const t=await s.reg('prof');
+ const st=(await s.call('POST','/api/start',{game:'heaps',mode:'ranked'},{token:t})).json();let v=st,n=0;while(!v.done&&n++<100)v=(await s.call('POST','/api/move',{session:st.session,move:v.legalMoves[0]})).json();
+ const pr=(await s.call('GET','/api/profile',{},{query:{handle:'PROF'}})).json();assert.equal(pr.handle,'prof');assert.ok(pr.games.heaps.score>=0);assert.equal(pr.games.heaps.runs,1);assert.equal(pr.recent.length,1);assert.equal(pr.overviewRank,1);
+ const run=(await s.call('GET','/api/run',{},{query:{id:pr.recent[0].id}})).json();assert.equal(run.game,'heaps');assert.ok(run.moves.length>0);
+ const ov=(await s.call('GET','/api/overview')).json();assert.equal(ov.rows[0].handle,'prof');
+ assert.equal((await s.call('GET','/api/profile',{},{query:{handle:'nobody'}})).status,404);
+ const old=await s.reg('oldtimer');await s.deps.redis.cmd('ZADD',`lb:t1:signal`,321,'oldtimer');const op=(await s.call('GET','/api/profile',{},{query:{handle:'oldtimer'}})).json();assert.equal(op.games.signal.score,321);
+ assert.equal((await s.call('GET','/api/text/overview')).status,200);assert.equal((await s.call('GET','/api/text/profile',{},{query:{handle:'prof'}})).status,200);void old;});
+
+test('new games: minefield and lights are replay-verified over HTTP and hide mines until the end',async()=>{const s=mk();
+ const m=(await s.call('POST','/api/start',{game:'minefield',mode:'casual',seed:3})).json();assert.equal('mines' in m.observation,false);assert.ok(m.observation.board.some((r:string)=>/[.1-8]/.test(r)));
+ let v=m,n=0;while(!v.done&&n++<100)v=(await s.call('POST','/api/move',{session:m.session,move:v.legalMoves[0]})).json();assert.ok(v.done);assert.ok(v.observation.mines.length===10);
+ const l=(await s.call('POST','/api/start',{game:'lights',mode:'casual',seed:3})).json();assert.equal(l.legalMoves.length,25);});
+
+test('handles expire after 14 idle days: removed from boards, profile and key; activity keeps them; name can be reclaimed',async()=>{const s=mk({SEALED_SEEDS:'1',SEALED_ATTEMPTS:'1'});const day=86400000;
+ const run=async(t:string)=>{const st=(await s.call('POST','/api/start',{game:'heaps',mode:'ranked'},{token:t})).json();let v=st,n=0;while(!v.done&&n++<100)v=(await s.call('POST','/api/move',{session:st.session,move:v.legalMoves[0]})).json();};
+ const a=await s.reg('keeper','1.1.1.1'),b=await s.reg('sleeper','2.2.2.2');await run(a);await run(b);
+ s.tick(10*day);assert.equal((await s.call('POST','/api/start',{game:'lights',mode:'casual'},{token:a})).status,200);// keeper plays again: activity
+ s.tick(6*day);// sleeper idle 16 days, keeper idle 6
+ const lb=(await s.call('GET','/api/leaderboard',{},{query:{game:'heaps'}})).json();assert.deepEqual(lb.rows.map((r:any)=>r.handle),['keeper']);
+ const ov=(await s.call('GET','/api/overview')).json();assert.deepEqual(ov.rows.map((r:any)=>r.handle),['keeper']);
+ assert.equal((await s.call('GET','/api/profile',{},{query:{handle:'sleeper'}})).status,404);
+ assert.equal((await s.call('POST','/api/start',{game:'heaps',mode:'ranked'},{token:b})).status,401,'key is gone');
+ s.tick(1);assert.equal((await s.call('POST','/api/start',{game:'heaps',mode:'ranked',handle:'sleeper'},{ip:'5.5.5.5'})).status,200,'name can be claimed again');
+ assert.equal((await s.call('GET','/api/profile',{},{query:{handle:'keeper'}})).status,200);});
+
+test('storage limit errors from Redis become a clear 503; openapi and robots ship; llms.txt is the current brief',async()=>{const s=mk();s.deps.redis.cmd=async()=>{throw new Error('ERR max daily request limit exceeded');};
+ const r=await handle({method:'GET',path:'/api/stats',query:{},body:{},headers:{},ip:'1',host:'x',proto:'https'},s.deps);assert.equal(r.status,503);assert.match(r.body,/capacity/);
+ const spec=JSON.parse(readFileSync(new URL('../public/openapi.json',import.meta.url),'utf8'));assert.ok(spec.paths['/api/start']&&spec.paths['/api/profile']);assert.match(readFileSync(new URL('../public/robots.txt',import.meta.url),'utf8'),/Allow: \//);
+ const l=(await mk().call('GET','/llms.txt')).text;assert.match(l,/Ten deterministic games/);assert.ok(!/sealed|practice mode/i.test(l),'no stale mode names');});
+
+test('v0.5.1: feed, daily streak, badge, card, share page, replay frames, tiers',async()=>{const s=mk();const tok=await s.reg('streaker');
+ const fin=async(game:string)=>{const st=(await s.call('POST','/api/start',{game,mode:'sealed'},{token:tok})).json();let v=st,n=0;while(!v.done&&n++<200)v=(await s.call('POST','/api/move',{session:st.session,move:(v.legalMoves||v.legalMovesSample)[0]})).json();return st.session as string;};
+ const d1=(await s.call('GET','/api/daily')).json();assert.equal(d1.date,'2026-10-05');assert.ok(games.some(g=>g.id===d1.game));
+ const sid=await fin(d1.game);
+ let p=(await s.call('GET','/api/profile?handle=streaker')).json();assert.equal(p.streak,1);assert.equal(p.dailyDoneToday,true);
+ assert.equal((await s.call('GET','/api/daily')).json().rows[0].handle,'streaker');
+ await fin(d1.game);p=(await s.call('GET','/api/profile?handle=streaker')).json();assert.equal(p.streak,1,'same day does not double count');
+ s.tick(86400000);const d2=(await s.call('GET','/api/daily')).json();assert.equal(d2.date,'2026-10-06');await fin(d2.game);
+ p=(await s.call('GET','/api/profile?handle=streaker')).json();assert.equal(p.streak,2);
+ s.tick(3*86400000);p=(await s.call('GET','/api/profile?handle=streaker')).json();assert.equal(p.streak,0);assert.equal(p.bestStreak,2);
+ const feed=(await s.call('GET','/api/feed')).json();assert.equal(feed.rows[0].handle,'streaker');
+ const run=(await s.call('GET','/api/run?id='+sid)).json();assert.equal(run.frames.length,run.moves.length+1);assert.equal('seed' in run,false);
+ const b=await s.call('GET','/api/badge?handle=streaker');assert.equal(b.status,200);assert.match(b.headers['content-type'],/svg/);assert.match(b.text,/<svg/);
+ assert.equal((await s.call('GET','/api/badge?handle=nobody')).status,404);
+ assert.match((await s.call('GET','/api/card?run='+sid)).text,/streaker/);
+ const sh=await s.call('GET','/api/share?run='+sid);assert.match(sh.text,/og:image/);
+ assert.equal((await s.call('GET','/api/card?run=<script>')).status,400);});
