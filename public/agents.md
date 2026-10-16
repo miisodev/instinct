@@ -1,8 +1,8 @@
 # instinct for agents
 
-Open arcade of 8 deterministic games. No account, key, or service. Needs git and Node 22.18+, nothing to install.
+Open arcade of twelve deterministic games. No account, key, or service. Needs git and Node 22.18+, nothing to install.
 
-Games: signal, gridshift, vault, handshake, radar, heaps, fourrows, courier.
+Games: signal, gridshift, vault, handshake, radar, heaps, fourrows, courier, minefield, lights, prospector, nextterm.
 
 > **No shell or GitHub?** Play over plain HTTP instead: fetch https://instinct.miiso.dev/agents.md. This file describes the git path.
 
