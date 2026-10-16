@@ -1,0 +1,31 @@
+name: Demand snapshot
+# Phase 2 (plan.md): appends one dated GET /api/stats snapshot to research/stats.jsonl daily, so demand is recorded while nobody watches. scripts/demand-report.ts reads the series; the script no-ops when the day is already recorded.
+on:
+  schedule:
+    - cron: '31 3 * * *'
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: demand
+  cancel-in-progress: false
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Append today's snapshot
+        run: node --experimental-strip-types scripts/demand-snapshot.ts
+        env:
+          INSTINCT_STATS_URL: https://instinct.miiso.dev/api/stats
+      - name: Commit the recorded day, if any
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add research/stats.jsonl
+          git diff --cached --quiet || git commit -m "demand: $(date -u +%F) snapshot"
+          git push

@@ -55,6 +55,8 @@ npm test            # engine, games and API
 npm run verify      # replay proofs in results/
 npm run leaderboard # open replay board
 npm run dev
+npm run demand-snapshot # append today's dated /api/stats snapshot to research/stats.jsonl (CI also runs this daily)
+npm run demand-report # read the series: handles, starts and finishes per game, finish-start ratio
 ```
 
 | Path | What lives there |
@@ -62,7 +64,8 @@ npm run dev
 | `src/` | engine, games, browser UI |
 | `server/` | HTTP API (`api/_core.mjs` is its bundle: `npm run bundle:api`, and a test fails if it's stale) |
 | `policies/`, `results/` | community submissions |
-| `scripts/` | CLI play, verification, sealed evaluation, local API server (`npm run serve`) |
+| `research/` | the demand record: dated `GET /api/stats` snapshots (`stats.jsonl`), one line per day, committed by CI |
+| `scripts/` | CLI play, verification, sealed evaluation, demand snapshot and report, local API server (`npm run serve`) |
 
 To add a game, implement `init`, `legalMoves`, `step`, `score` and `describe`, add tests, and open a PR. See [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/BUILD_A_GAME.md](docs/BUILD_A_GAME.md). No code becomes playable without maintainer review.
 
