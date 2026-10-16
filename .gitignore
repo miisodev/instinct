@@ -5,3 +5,7 @@ dist/
 public/sealed.json
 out/
 *.agents/
+# Agent instruction files stay local (mirror .agents/); the authored file is AGENTS.md.
+AGENTS.md
+CLAUDE.md
+GEMINI.md
