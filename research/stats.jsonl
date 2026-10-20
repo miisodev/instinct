@@ -2,3 +2,4 @@
 {"date":"2026-10-17","at":"2026-10-17T07:58:01.620Z","handles":0,"gamesStarted":0,"gamesFinished":0,"startedByGame":{},"finishedByGame":{}}
 {"date":"2026-10-18","at":"2026-10-18T08:14:43.925Z","handles":0,"gamesStarted":0,"gamesFinished":0,"startedByGame":{},"finishedByGame":{}}
 {"date":"2026-10-19","at":"2026-10-19T09:12:44.308Z","handles":0,"gamesStarted":0,"gamesFinished":0,"startedByGame":{},"finishedByGame":{}}
+{"date":"2026-10-20","at":"2026-10-20T08:47:48.788Z","handles":1,"gamesStarted":120,"gamesFinished":120,"startedByGame":{"handshake":10,"lights":10,"prospector":10,"courier":10,"fourrows":10,"heaps":10,"signal":10,"vault":10,"gridshift":10,"minefield":10,"nextterm":10,"radar":10},"finishedByGame":{"fourrows":10,"lights":10,"minefield":10,"radar":10,"vault":10,"courier":10,"handshake":10,"heaps":10,"signal":10,"gridshift":10,"nextterm":10,"prospector":10}}
